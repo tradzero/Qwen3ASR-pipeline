@@ -161,7 +161,7 @@ numpy                   # 数组操作
 如需预下载或国内加速：
 ```bash
 # HuggingFace
-huggingface-cli download Qwen/Qwen3-ASR-1.7B --local-dir ./models/Qwen3-ASR-1.7B
+hf download Qwen/Qwen3-ASR-1.7B --local-dir ./models/Qwen3-ASR-1.7B
 
 # ModelScope（国内推荐）
 modelscope download --model Qwen/Qwen3-ASR-1.7B --local_dir ./models/Qwen3-ASR-1.7B

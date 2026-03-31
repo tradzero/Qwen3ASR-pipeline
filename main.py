@@ -1,9 +1,20 @@
 import argparse
+import multiprocessing as mp
 import os
 import threading
 import time
 
+os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
+
 from config import Config
+
+
+def configure_runtime() -> None:
+    """在导入 vLLM 前固定 multiprocessing 启动方式。"""
+    try:
+        mp.set_start_method("spawn", force=True)
+    except RuntimeError:
+        pass
 
 
 def parse_args() -> Config:
@@ -46,6 +57,8 @@ def run(config: Config) -> None:
     # --- 流水线并行：CPU 端 (音频+VAD) 与 GPU 端 (模型加载) 同时进行 ---
     segments_result = [None]
     model_result = [None]
+    cpu_done = threading.Event()
+    gpu_done = threading.Event()
 
     def cpu_pipeline():
         print(f"[CPU] 加载音频: {config.input_file}")
@@ -56,17 +69,34 @@ def run(config: Config) -> None:
         segs = process_vad(wav, config.segment_duration, config.max_segment_duration)
         print(f"[CPU] 切片完成: {len(segs)} 段")
         segments_result[0] = segs
+        cpu_done.set()
 
     def gpu_pipeline():
         print(f"[GPU] 加载模型: {config.model}")
         model = init_model(config)
         print("[GPU] 模型加载完成")
         model_result[0] = model
+        gpu_done.set()
 
     t_cpu = threading.Thread(target=cpu_pipeline)
     t_gpu = threading.Thread(target=gpu_pipeline)
     t_cpu.start()
     t_gpu.start()
+
+    # 等待两条流水线完成，打印等待状态
+    while t_cpu.is_alive() or t_gpu.is_alive():
+        both_alive = t_cpu.is_alive() and t_gpu.is_alive()
+        if not both_alive:
+            if t_cpu.is_alive() and gpu_done.is_set():
+                print("[等待] GPU 就绪，等待 CPU 端 (音频加载/VAD) 完成...")
+            elif t_gpu.is_alive() and cpu_done.is_set():
+                print("[等待] CPU 就绪，等待 GPU 端 (模型加载) 完成...")
+            # 等剩余线程结束
+            t_cpu.join()
+            t_gpu.join()
+            break
+        time.sleep(0.5)
+
     t_cpu.join()
     t_gpu.join()
 
@@ -76,7 +106,10 @@ def run(config: Config) -> None:
     # --- 批量推理 ---
     print(f"[ASR] 开始推理 ({len(segments)} 段)...")
     t_infer = time.time()
-    texts = transcribe_segments(model, segments, config.language)
+    texts = transcribe_segments(
+        model, segments, config.language,
+        batch_size=config.max_inference_batch_size,
+    )
     print(f"[ASR] 推理完成, 耗时 {time.time() - t_infer:.1f}s")
 
     # --- 输出 ---
@@ -95,5 +128,6 @@ def run(config: Config) -> None:
 
 
 if __name__ == "__main__":
+    configure_runtime()
     config = parse_args()
     run(config)

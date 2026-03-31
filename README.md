@@ -8,7 +8,7 @@
 - Silero-VAD 智能切片，在静音处切分，避免切断语句
 - vLLM batch 推理，最大化单卡吞吐
 - 输出纯文本 `.txt` + 可选 SRT 字幕 `.srt`
-- 模型权重自动下载
+- 模型权重自动下载 / 预下载目录自动复用
 
 ## 前置条件
 
@@ -63,7 +63,7 @@ python main.py -i video.mp4 \
 | `-i / --input` | (必填) | 输入视频/音频文件路径 |
 | `-o / --output-dir` | `./output` | 输出目录 |
 | `--srt` | 关闭 | 同时输出 SRT 字幕文件 |
-| `--model` | `Qwen/Qwen3-ASR-1.7B` | ASR 模型名称或本地路径 |
+| `--model` | `Qwen/Qwen3-ASR-1.7B` | ASR 模型名称或本地路径；若存在 `./models/Qwen3-ASR-1.7B` 会自动优先使用 |
 | `--language` | 自动检测 | 指定语言（如 `Chinese`、`English`） |
 | `--gpu-mem` | `0.7` | GPU 显存利用率 |
 | `--batch-size` | `32` | 最大推理批大小 |
@@ -100,14 +100,20 @@ class Config:
 
 ```bash
 # HuggingFace
-huggingface-cli download Qwen/Qwen3-ASR-1.7B --local-dir ./models/Qwen3-ASR-1.7B
+hf download Qwen/Qwen3-ASR-1.7B --local-dir ./models/Qwen3-ASR-1.7B
 
 # ModelScope（国内推荐）
 pip install -U modelscope
 modelscope download --model Qwen/Qwen3-ASR-1.7B --local_dir ./models/Qwen3-ASR-1.7B
 ```
 
-预下载后使用本地路径：
+如果你把模型预下载到 `./models/Qwen3-ASR-1.7B`，程序会自动优先使用该目录，直接运行即可：
+
+```bash
+python main.py -i video.mp4
+```
+
+也可以显式指定本地路径：
 
 ```bash
 python main.py -i video.mp4 --model ./models/Qwen3-ASR-1.7B
