@@ -182,3 +182,44 @@ modelscope download --model Qwen/Qwen3-ASR-1.7B --local_dir ./models/Qwen3-ASR-1
 | 7 | 实现 `main.py` — CLI 入口 & 流水线编排 | ✅ 完成 |
 | 8 | 撰写 `README.md` — 使用说明 & 配置文档 | ✅ 完成 |
 | 9 | 端到端测试 & 调优 | 待开始 |
+| 10 | 服务器模式（持久化推理服务） | 待开始 |
+
+## 后续优化：服务器模式（持久化推理服务）
+
+**动机**：当前每次运行都要加载模型到 GPU（权重加载 + CUDA Graph 编译），启动开销大。如果需要频繁/批量转录，应改用持久化服务器模式，模型常驻显存。
+
+### 方案设计
+
+qwen-asr 自带 `qwen-asr-serve` 命令（本质是 `vllm serve` 的封装），启动后暴露 OpenAI 兼容 API。
+
+**启动服务器**：
+```bash
+qwen-asr-serve ./models/Qwen3-ASR-1.7B \
+    --gpu-memory-utilization 0.7 \
+    --host 127.0.0.1 --port 8000
+```
+
+**客户端调用**：
+```python
+from qwen_asr import Qwen3ASRModel
+
+model = Qwen3ASRModel.OpenAI(
+    base_url="http://127.0.0.1:8000/v1",
+    model="Qwen/Qwen3-ASR-1.7B",
+)
+results = model.transcribe(audio=[(wav, 16000)], language=None)
+```
+
+### 改造要点
+
+- `transcribe.py` 新增 `init_model_client(config)` 函数，返回 OpenAI 模式的 model 对象
+- `config.py` 新增 `server_url: str | None = None` 参数
+- `main.py` CLI 新增 `--server-url` 参数，传入时跳过本地模型加载，直接连接远程服务
+- CPU 流水线（音频加载 + VAD）不受影响，无需改动
+- 服务器启动可以写一个 `serve.sh` 脚本简化操作
+
+### 注意事项
+
+- 服务器模式下 `max_inference_batch_size` 由服务端控制，客户端无需设置
+- `enforce_eager=True` 可传给 `qwen-asr-serve` 以加速服务器首次启动
+- 作为临时加速手段，也可以在当前离线模式中加 `enforce_eager=True` 跳过 CUDA Graph 编译，减少约 30-60 秒启动时间
