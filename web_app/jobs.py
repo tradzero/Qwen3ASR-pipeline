@@ -28,6 +28,10 @@ class ArtifactNotFoundError(KeyError):
     pass
 
 
+class InvalidArtifactPathError(ValueError):
+    pass
+
+
 def utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -84,7 +88,7 @@ class JobReporter:
         )
 
     async def artifact(self, *, name: str, kind: str, path: str | Path) -> JobRecord:
-        artifact = JobArtifact(name=name, kind=kind, path=str(Path(path)))
+        artifact = JobArtifact(name=name, kind=kind, path=str(Path(path).resolve()))
         return await self._manager.add_artifact(self.job_id, artifact)
 
 
@@ -194,6 +198,9 @@ class JobManager:
                 message=str(exc),
             )
             return
+        current_job = self.get_job(job_id)
+        if current_job.status in TERMINAL_STATUSES:
+            return
         if token.is_canceled:
             await self.update_job(job_id, status="canceled", stage="canceled", event="status", message="任务已取消。")
         else:
@@ -259,6 +266,8 @@ class JobManager:
     async def add_artifact(self, job_id: str, artifact: JobArtifact) -> JobRecord:
         async with self._lock:
             job = self.get_job(job_id)
+            artifact_path = self._validate_artifact_path(job_id, artifact.path)
+            artifact = artifact.model_copy(update={"path": str(artifact_path)})
             job.artifacts = [item for item in job.artifacts if item.name != artifact.name]
             job.artifacts.append(artifact)
             job.updated_at = utc_now()
@@ -266,11 +275,22 @@ class JobManager:
             await self._publish(job, "artifact", message=f"产物已登记: {artifact.name}", artifact=artifact)
             return job
 
+    def _validate_artifact_path(self, job_id: str, path: str) -> Path:
+        artifact_path = Path(path).expanduser().resolve()
+        allowed_root = (self.artifact_dir / job_id).resolve()
+        try:
+            artifact_path.relative_to(allowed_root)
+        except ValueError as exc:
+            raise InvalidArtifactPathError(
+                f"Artifact path must be inside job artifact directory: {allowed_root}"
+            ) from exc
+        return artifact_path
+
     def get_artifact_path(self, job_id: str, artifact_name: str) -> Path:
         job = self.get_job(job_id)
         for artifact in job.artifacts:
             if artifact.name == artifact_name:
-                path = Path(artifact.path)
+                path = self._validate_artifact_path(job_id, artifact.path)
                 if not path.is_file():
                     break
                 return path

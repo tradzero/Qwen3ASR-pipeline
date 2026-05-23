@@ -7,7 +7,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
 from config import Config
-from web_app.jobs import ArtifactNotFoundError, JobConflictError, JobManager, JobNotFoundError
+from web_app.jobs import (
+    ArtifactNotFoundError,
+    InvalidArtifactPathError,
+    JobConflictError,
+    JobManager,
+    JobNotFoundError,
+    TERMINAL_STATUSES,
+)
 from web_app.schemas import CancelJobResponse, JobInput, JobListResponse, MockJobRequest
 from web_app.settings import get_runtime_paths, get_web_settings
 
@@ -72,6 +79,7 @@ async def create_mock_job(request: MockJobRequest):
         )
     except JobConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    response_job = job.model_copy(deep=True)
 
     async def runner(reporter, cancel_token) -> None:
         await reporter.stage("mock_running", "Mock 任务开始。")
@@ -99,7 +107,7 @@ async def create_mock_job(request: MockJobRequest):
         await reporter.artifact(name="mock-output", kind="txt", path=artifact_path)
 
     asyncio.create_task(job_manager.run_job(job.job_id, runner))
-    return job
+    return response_job
 
 
 @app.get("/api/jobs/{job_id}/events")
@@ -124,6 +132,8 @@ async def job_events(job_id: str):
                     f"event: {event.event}\n"
                     f"data: {json.dumps(event.model_dump(mode='json'), ensure_ascii=False)}\n\n"
                 )
+                if event.status in TERMINAL_STATUSES:
+                    break
         finally:
             job_manager.unsubscribe(job_id, queue)
 
@@ -139,6 +149,6 @@ async def get_artifact(job_id: str, artifact_name: str):
     _get_job_or_404(job_id)
     try:
         artifact_path = job_manager.get_artifact_path(job_id, artifact_name)
-    except ArtifactNotFoundError as exc:
+    except (ArtifactNotFoundError, InvalidArtifactPathError) as exc:
         raise HTTPException(status_code=404, detail="Artifact not found") from exc
     return FileResponse(artifact_path)
