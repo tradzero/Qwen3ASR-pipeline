@@ -339,10 +339,10 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 ### 范围
 
 - 新增 LADA runner，使用 `asyncio.create_subprocess_exec` 以列表参数调用 CLI。
-- 默认命令：`D:\lada\lada-cli.exe --input <path> --output <LADA_OUTPUT_DIR>/<job_id>`。
+- 默认命令：`D:\lada\lada-cli.exe --input <path> --output <输入文件名>-lada-<job_id>`，输出目录优先创建在输入视频同目录。
 - 已核对支持参数：`--encoding-preset`、`--device`、`--fp16/--no-fp16`、`--max-clip-length`；Web 表单限制 `max_clip_length <= 1000`。
 - 子进程工作目录设为 `lada-cli.exe` 所在目录，避免 LADA 默认 `./model_weights` 指到 Web 后端目录。
-- 输出目录默认 `output/lada/<job_id>/`，LADA job 的 artifact 校验只允许当前 job 的通用 artifact 目录或 LADA 输出目录。
+- 输入视频同目录不可写时回退到 `output/lada/<job_id>/`，LADA job 的 artifact 校验只允许当前 job 的通用 artifact 目录、同目录 LADA 输出目录或备用输出目录。
 - 捕获 stdout/stderr，解析 tqdm 文本中的 `Processing video: NN%` 或中文本地化输出 `正在处理视频：NN%`。
 - 解析不到百分比时，前端显示运行中、elapsed 和最新日志。
 - 实现取消：先 terminate，超时后 kill。

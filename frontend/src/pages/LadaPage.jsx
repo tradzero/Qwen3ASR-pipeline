@@ -108,7 +108,7 @@ export function LadaPage({ activeJob, setActiveJob, streamMode, jobError, setJob
 
   return (
     <div className="page-grid">
-      <Panel title="LADA 去码" description="调用本机 lada-cli.exe，输出视频会登记为任务产物。">
+      <Panel title="LADA 去码" description="调用本机 lada-cli.exe，输出优先写入输入视频同目录并登记为任务产物。">
         <form className="task-form" onSubmit={submitJob}>
           <label>
             输入视频

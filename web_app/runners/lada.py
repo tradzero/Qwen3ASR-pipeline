@@ -8,8 +8,8 @@ from pathlib import Path
 
 from config import WebSettings
 from web_app.jobs import CancelToken, JobReporter
+from web_app.lada_paths import prepare_lada_output_dir
 from web_app.schemas import LadaJobRequest
-from web_app.settings import get_runtime_paths
 
 
 _PROGRESS_PATTERNS = [
@@ -17,6 +17,12 @@ _PROGRESS_PATTERNS = [
     re.compile(r"正在处理视频[:：]\s*(\d+(?:\.\d+)?)%"),
 ]
 _VIDEO_SUFFIXES = {".mp4", ".mkv", ".mov", ".avi", ".webm"}
+
+
+def _sanitize_child_env(env: dict[str, str]) -> None:
+    cuda_alloc_conf = env.get("PYTORCH_CUDA_ALLOC_CONF", "")
+    if os.name == "nt" and "expandable_segments" in cuda_alloc_conf:
+        env.pop("PYTORCH_CUDA_ALLOC_CONF", None)
 
 
 def _command(settings: WebSettings, request: LadaJobRequest, output_dir: Path) -> list[str]:
@@ -111,13 +117,17 @@ async def run_lada_web_job(request: LadaJobRequest, settings: WebSettings, repor
     if not input_path.is_file():
         raise FileNotFoundError(f"LADA 输入文件不存在: {request.input_file}")
 
-    output_dir = get_runtime_paths(settings)["lada_output_dir"] / reporter.job_id
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir, output_fallback_reason = prepare_lada_output_dir(settings, input_path, reporter.job_id)
     command = _command(settings, request, output_dir)
     env = os.environ.copy()
     env.setdefault("PYTHONUTF8", "1")
+    _sanitize_child_env(env)
 
     await reporter.stage("lada_starting", "LADA 任务准备开始。")
+    if output_fallback_reason is None:
+        await reporter.log(f"输出目录: {output_dir}")
+    else:
+        await reporter.log(f"无法在输入文件同目录创建输出目录，改用备用目录: {output_dir} ({output_fallback_reason})")
     await reporter.log("命令: " + " ".join(f'"{item}"' if " " in item else item for item in command))
     started = time.monotonic()
     process = await asyncio.create_subprocess_exec(

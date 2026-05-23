@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 
 import { artifactUrl, TERMINAL_STATUSES } from "../api/client.js";
 
@@ -19,9 +19,11 @@ function formatSeconds(value) {
 export function JobDetail({ job, onCancel, busy = false }) {
   const logBoxRef = useRef(null);
   const shouldStickToBottomRef = useRef(true);
+  const lastScrollTopRef = useRef(0);
   const lastJobIdRef = useRef(null);
+  const latestLog = job?.logs?.length ? job.logs[job.logs.length - 1] : "";
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const logBox = logBoxRef.current;
     if (!logBox || !job) {
       return;
@@ -31,11 +33,14 @@ export function JobDetail({ job, onCancel, busy = false }) {
       lastJobIdRef.current = job.job_id;
     }
     if (shouldStickToBottomRef.current) {
+      logBox.scrollTop = logBox.scrollHeight;
+      lastScrollTopRef.current = logBox.scrollTop;
       requestAnimationFrame(() => {
         logBox.scrollTop = logBox.scrollHeight;
+        lastScrollTopRef.current = logBox.scrollTop;
       });
     }
-  }, [job?.job_id, job?.logs?.length, job?.stage, job?.status]);
+  }, [job?.job_id, job?.logs?.length, latestLog, job?.stage, job?.status]);
 
   if (!job) {
     return <div className="empty-state">没有正在查看的任务。</div>;
@@ -49,7 +54,13 @@ export function JobDetail({ job, onCancel, busy = false }) {
       return;
     }
     const distanceToBottom = logBox.scrollHeight - logBox.scrollTop - logBox.clientHeight;
-    shouldStickToBottomRef.current = distanceToBottom < 24;
+    const scrolledUp = logBox.scrollTop < lastScrollTopRef.current;
+    if (distanceToBottom <= 48) {
+      shouldStickToBottomRef.current = true;
+    } else if (scrolledUp) {
+      shouldStickToBottomRef.current = false;
+    }
+    lastScrollTopRef.current = logBox.scrollTop;
   };
 
   return (

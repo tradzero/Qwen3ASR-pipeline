@@ -64,7 +64,7 @@ Web 运行配置使用单独的 `WebSettings`，不会改变 CLI 的 ASR `Config
 | `WEB_JOB_DIR` | `./jobs` | 任务历史和运行态目录 |
 | `WEB_ARTIFACT_DIR` | `./output/web` | Web 任务通用产物目录 |
 | `LADA_CLI_PATH` | `D:\lada\lada-cli.exe` | LADA CLI 可执行文件路径 |
-| `LADA_OUTPUT_DIR` | `./output/lada` | LADA 处理后视频的任务输出根目录 |
+| `LADA_OUTPUT_DIR` | `./output/lada` | LADA 无法写入输入文件同目录时使用的备用输出根目录 |
 | `LADA_ENCODING_PRESET` | 空 | LADA `--encoding-preset`；为空时使用 CLI 默认值 |
 | `LADA_DEVICE` | 空 | LADA `--device`；为空时使用 CLI 默认值 |
 | `LADA_FP16` | 空 | LADA `--fp16/--no-fp16`；为空时使用 CLI 默认值 |
@@ -103,7 +103,7 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 
 ### 阶段 4 LADA
 
-LADA 页面会调用 `LADA_CLI_PATH` 指向的 `lada-cli.exe`，并把恢复后的视频写入 `LADA_OUTPUT_DIR/<job_id>/`。后端启动子进程时会把工作目录设为 `lada-cli.exe` 所在目录，匹配 LADA 对 `./model_weights` 的默认查找方式。
+LADA 页面会调用 `LADA_CLI_PATH` 指向的 `lada-cli.exe`，并优先把恢复后的视频写入输入视频同目录下的 `<输入文件名>-lada-<job_id>/`。如果该目录无法创建（例如 NAS 共享只读或权限不足），后端会回退到 `LADA_OUTPUT_DIR/<job_id>/`。后端启动子进程时会把工作目录设为 `lada-cli.exe` 所在目录，匹配 LADA 对 `./model_weights` 的默认查找方式。
 
 已按本机 `D:\lada\lada-cli.exe --help` 核对的参数：`--input`、`--output`、`--encoding-preset`、`--device`、`--fp16/--no-fp16`、`--max-clip-length`。本机设备枚举显示 `cpu` 和 `cuda:0`，编码预设可用：`h264-cpu-uhq`、`h264-cpu-fast`、`h264-nvidia-gpu-fast`、`hevc-nvidia-gpu-balanced`、`hevc-nvidia-gpu-hq`、`hevc-nvidia-gpu-uhq`、`av1-cpu-uhq` 等。
 

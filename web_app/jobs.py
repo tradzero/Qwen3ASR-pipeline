@@ -8,6 +8,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from config import WebSettings
+from web_app.lada_paths import lada_output_candidates
 from web_app.schemas import JobArtifact, JobEvent, JobInput, JobProgress, JobRecord, JobStatus, JobType
 from web_app.settings import ensure_runtime_dirs, get_runtime_paths
 
@@ -296,7 +297,10 @@ class JobManager:
         job = self.get_job(job_id)
         allowed_roots = [(self.artifact_dir / job_id).resolve()]
         if job.type == "lada":
-            allowed_roots.append((get_runtime_paths(self.settings)["lada_output_dir"] / job_id).resolve())
+            input_file = job.metadata.get("input_file")
+            if not isinstance(input_file, str):
+                input_file = job.input.path
+            allowed_roots.extend(candidate.resolve() for candidate in lada_output_candidates(self.settings, input_file, job_id))
         for allowed_root in allowed_roots:
             try:
                 artifact_path.relative_to(allowed_root)
