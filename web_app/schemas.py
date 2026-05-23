@@ -2,7 +2,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from config import Config
+from config import Config, WebSettings
 
 
 JobType = Literal["mock", "asr", "lada", "translate"]
@@ -66,6 +66,18 @@ class UploadResponse(BaseModel):
     path: str
     filename: str
     size_bytes: int
+
+
+_WEB_DEFAULTS = WebSettings()
+MAX_LADA_CLIP_LENGTH = 1000
+
+
+class LadaJobRequest(BaseModel):
+    input_file: str = Field(min_length=1)
+    encoding_preset: str | None = _WEB_DEFAULTS.lada_encoding_preset
+    device: str | None = _WEB_DEFAULTS.lada_device
+    fp16: bool | None = _WEB_DEFAULTS.lada_fp16
+    max_clip_length: int | None = Field(default=_WEB_DEFAULTS.lada_max_clip_length, ge=1, le=MAX_LADA_CLIP_LENGTH)
 
 
 _ASR_DEFAULTS = Config()

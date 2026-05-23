@@ -328,17 +328,20 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 
 ## 阶段 4：LADA 去码任务
 
+状态：代码实现完成，已用模拟 CLI 验证进度、取消路径基础结构和 artifact 登记；本机真实 CLI 已核对 `--help`、`--list-devices`、`--list-encoding-presets`，短视频端到端处理留作人工验收。
+
 ### 目标
 
 把 `D:\lada\lada-cli.exe` 包装成可从网页启动、显示进度和取消的独立任务。
 
 ### 范围
 
-- 新增 LADA runner，使用 `subprocess.Popen` 调用 CLI。
-- 默认命令：`D:\lada\lada-cli.exe --input <path> --output <output>`。
-- 支持可选参数：encoding preset、device、fp16/no-fp16、max clip length。
-- 输出目录默认 `output/lada/<job_id>/`。
-- 捕获 stdout/stderr，解析 tqdm 文本中的 `Processing video: NN%`。
+- 新增 LADA runner，使用 `asyncio.create_subprocess_exec` 以列表参数调用 CLI。
+- 默认命令：`D:\lada\lada-cli.exe --input <path> --output <LADA_OUTPUT_DIR>/<job_id>`。
+- 已核对支持参数：`--encoding-preset`、`--device`、`--fp16/--no-fp16`、`--max-clip-length`；Web 表单限制 `max_clip_length <= 1000`。
+- 子进程工作目录设为 `lada-cli.exe` 所在目录，避免 LADA 默认 `./model_weights` 指到 Web 后端目录。
+- 输出目录默认 `output/lada/<job_id>/`，LADA job 的 artifact 校验只允许当前 job 的通用 artifact 目录或 LADA 输出目录。
+- 捕获 stdout/stderr，解析 tqdm 文本中的 `Processing video: NN%` 或中文本地化输出 `正在处理视频：NN%`。
 - 解析不到百分比时，前端显示运行中、elapsed 和最新日志。
 - 实现取消：先 terminate，超时后 kill。
 - 记录 LADA 进程退出码；只有退出码为 0 且输出文件存在时才登记 artifact。
@@ -366,7 +369,8 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 ```powershell
 & "D:\lada\lada-cli.exe" --help
 & "D:\lada\lada-cli.exe" --list-devices
-python -m compileall .
+& "D:\lada\lada-cli.exe" --list-encoding-presets
+python -m compileall web_app
 npm --prefix frontend run build
 ```
 
@@ -374,7 +378,7 @@ npm --prefix frontend run build
 
 - 从网页创建 LADA 任务。
 - 日志能实时显示 LADA 输出。
-- 如果输出中包含百分比，进度条同步更新。
+- 如果输出中包含英文或中文 LADA 百分比，进度条同步更新。
 - 取消任务后 subprocess 退出，任务状态为 `canceled`。
 - 成功后 restored mp4 出现在 artifacts。
 

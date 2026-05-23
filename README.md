@@ -12,9 +12,9 @@
 - SRT 优先使用 ForcedAligner 词/字级时间戳，失败时回退到 VAD 段落级时间
 - ASR 主模型和 ForcedAligner 模型均支持 HuggingFace ID / 本地路径 / Windows UNC 路径
 
-## Web 控制台规划
+## Web 控制台
 
-本项目计划增加本地 Web 控制台，使用 React + Vite 前端和 FastAPI 后端，支持网页上传/路径载入、ASR 任务进度展示、LADA 去码任务进度展示，以及手动 DeepSeek 翻译。详细阶段、审查点和验证清单见 [docs/web-console-roadmap.md](docs/web-console-roadmap.md)。
+本项目的本地 Web 控制台使用 React + Vite 前端和 FastAPI 后端，当前已支持网页上传/路径载入、ASR 任务进度展示、LADA 去码任务进度展示和历史产物下载。DeepSeek 翻译仍按阶段 5 计划推进；详细阶段、审查点和验证清单见 [docs/web-console-roadmap.md](docs/web-console-roadmap.md)。
 
 ### 阶段 0 基线
 
@@ -39,6 +39,11 @@ Web 运行配置使用单独的 `WebSettings`，不会改变 CLI 的 ASR `Config
 | `WEB_JOB_DIR` | `./jobs` | 任务历史和运行态目录 |
 | `WEB_ARTIFACT_DIR` | `./output/web` | Web 任务通用产物目录 |
 | `LADA_CLI_PATH` | `D:\lada\lada-cli.exe` | LADA CLI 可执行文件路径 |
+| `LADA_OUTPUT_DIR` | `./output/lada` | LADA 处理后视频的任务输出根目录 |
+| `LADA_ENCODING_PRESET` | 空 | LADA `--encoding-preset`；为空时使用 CLI 默认值 |
+| `LADA_DEVICE` | 空 | LADA `--device`；为空时使用 CLI 默认值 |
+| `LADA_FP16` | 空 | LADA `--fp16/--no-fp16`；为空时使用 CLI 默认值 |
+| `LADA_MAX_CLIP_LENGTH` | 空 | LADA `--max-clip-length`；为空时使用 CLI 默认值 |
 | `DEEPSEEK_API_KEY_ENV` | `DEEPSEEK_API_KEY` | DeepSeek API key 所在环境变量名 |
 | `DEEPSEEK_MODEL` | `deepseek-v4-flash` | DeepSeek 翻译模型 |
 
@@ -59,7 +64,22 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 - `POST /api/jobs/{job_id}/cancel`
 - `GET /api/jobs/{job_id}/events`
 - `GET /api/artifacts/{job_id}/{artifact_name}`
+- `POST /api/uploads`
 - `POST /api/jobs/mock`
+- `POST /api/jobs/asr`
+- `POST /api/jobs/lada`
+
+### 阶段 4 LADA
+
+LADA 页面会调用 `LADA_CLI_PATH` 指向的 `lada-cli.exe`，并把恢复后的视频写入 `LADA_OUTPUT_DIR/<job_id>/`。后端启动子进程时会把工作目录设为 `lada-cli.exe` 所在目录，匹配 LADA 对 `./model_weights` 的默认查找方式。
+
+已按本机 `D:\lada\lada-cli.exe --help` 核对的参数：`--input`、`--output`、`--encoding-preset`、`--device`、`--fp16/--no-fp16`、`--max-clip-length`。本机设备枚举显示 `cpu` 和 `cuda:0`，编码预设可用：`h264-cpu-uhq`、`h264-cpu-fast`、`h264-nvidia-gpu-fast`、`hevc-nvidia-gpu-balanced`、`hevc-nvidia-gpu-hq`、`hevc-nvidia-gpu-uhq`、`av1-cpu-uhq` 等。
+
+```powershell
+& "D:\lada\lada-cli.exe" --help
+& "D:\lada\lada-cli.exe" --list-devices
+& "D:\lada\lada-cli.exe" --list-encoding-presets
+```
 
 ## 前置条件
 

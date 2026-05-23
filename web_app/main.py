@@ -20,11 +20,13 @@ from web_app.jobs import (
     TERMINAL_STATUSES,
 )
 from web_app.runners.asr import run_asr_web_job
+from web_app.runners.lada import run_lada_web_job
 from web_app.schemas import (
     AsrJobRequest,
     CancelJobResponse,
     JobInput,
     JobListResponse,
+    LadaJobRequest,
     MockJobRequest,
     UploadResponse,
 )
@@ -191,6 +193,35 @@ async def create_asr_job(request: AsrJobRequest):
 
     async def runner(reporter, cancel_token) -> None:
         await run_asr_web_job(config, reporter, cancel_token)
+
+    asyncio.create_task(job_manager.run_job(job.job_id, runner))
+    return response_job
+
+
+@app.post("/api/jobs/lada")
+async def create_lada_job(request: LadaJobRequest):
+    input_file = request.input_file.strip()
+    if not input_file:
+        raise HTTPException(status_code=422, detail="input_file is required")
+    if _is_remote_input(input_file):
+        raise HTTPException(status_code=400, detail="LADA 任务目前只支持本机文件路径或上传文件")
+    input_path = Path(input_file).expanduser()
+    if not input_path.is_file():
+        raise HTTPException(status_code=400, detail="Input file does not exist")
+
+    request = request.model_copy(update={"input_file": str(input_path.resolve())})
+    try:
+        job = await job_manager.create_job(
+            "lada",
+            JobInput(source_kind="path", path=input_file),
+            metadata=request.model_dump(mode="json"),
+        )
+    except JobConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    response_job = job.model_copy(deep=True)
+
+    async def runner(reporter, cancel_token) -> None:
+        await run_lada_web_job(request, settings, reporter, cancel_token)
 
     asyncio.create_task(job_manager.run_job(job.job_id, runner))
     return response_job

@@ -204,11 +204,15 @@ class JobManager:
         if token.is_canceled:
             await self.update_job(job_id, status="canceled", stage="canceled", event="status", message="任务已取消。")
         else:
+            if current_job.progress.done == 0 and current_job.progress.total == 0 and current_job.progress.percent == 0.0:
+                progress = JobProgress(percent=100.0, done=1, total=1)
+            else:
+                progress = current_job.progress.model_copy(update={"percent": 100.0})
             await self.update_job(
                 job_id,
                 status="succeeded",
                 stage="succeeded",
-                progress=JobProgress(percent=100.0, done=1, total=1),
+                progress=progress,
                 event="status",
                 message="任务已完成。",
             )
@@ -277,14 +281,20 @@ class JobManager:
 
     def _validate_artifact_path(self, job_id: str, path: str) -> Path:
         artifact_path = Path(path).expanduser().resolve()
-        allowed_root = (self.artifact_dir / job_id).resolve()
-        try:
-            artifact_path.relative_to(allowed_root)
-        except ValueError as exc:
-            raise InvalidArtifactPathError(
-                f"Artifact path must be inside job artifact directory: {allowed_root}"
-            ) from exc
-        return artifact_path
+        job = self.get_job(job_id)
+        allowed_roots = [(self.artifact_dir / job_id).resolve()]
+        if job.type == "lada":
+            allowed_roots.append((get_runtime_paths(self.settings)["lada_output_dir"] / job_id).resolve())
+        for allowed_root in allowed_roots:
+            try:
+                artifact_path.relative_to(allowed_root)
+                return artifact_path
+            except ValueError:
+                continue
+        raise InvalidArtifactPathError(
+            "Artifact path must be inside a job output directory: "
+            + ", ".join(str(root) for root in allowed_roots)
+        )
 
     def get_artifact_path(self, job_id: str, artifact_name: str) -> Path:
         job = self.get_job(job_id)
