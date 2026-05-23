@@ -14,7 +14,19 @@
 
 ## Web 控制台
 
-本项目的本地 Web 控制台使用 React + Vite 前端和 FastAPI 后端，当前已支持网页上传/路径载入、ASR 任务进度展示、LADA 去码任务进度展示和历史产物下载。DeepSeek 翻译仍按阶段 5 计划推进；详细阶段、审查点和验证清单见 [docs/web-console-roadmap.md](docs/web-console-roadmap.md)。
+本项目的本地 Web 控制台使用 React + Vite 前端和 FastAPI 后端，当前已支持网页上传/路径载入、ASR 任务进度展示、LADA 去码任务进度展示、DeepSeek SRT 字幕翻译、任务历史和产物下载。详细阶段、审查点和验证清单见 [docs/web-console-roadmap.md](docs/web-console-roadmap.md)。
+
+### Web 快速启动
+
+```powershell
+pip install -r requirements-web.txt
+npm --prefix frontend install
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+# 编辑 .env，填入 API_KEY；不要提交 .env
+.\scripts\start-web.ps1
+```
+
+默认后端监听 `http://127.0.0.1:7860`，前端监听 `http://127.0.0.1:5173`。后端启动时会静默加载项目根目录 `.env`，不会打印 API key；已有进程环境变量优先于 `.env`。本工具默认只适合本机使用，不建议把 `WEB_HOST` 改成 `0.0.0.0`。局域网访问会暴露本机路径、上传文件和任务执行能力，需自行承担风险。
 
 ### 阶段 0 基线
 
@@ -46,6 +58,10 @@ Web 运行配置使用单独的 `WebSettings`，不会改变 CLI 的 ASR `Config
 | `LADA_MAX_CLIP_LENGTH` | 空 | LADA `--max-clip-length`；为空时使用 CLI 默认值 |
 | `DEEPSEEK_API_KEY_ENV` | `DEEPSEEK_API_KEY` | DeepSeek API key 所在环境变量名 |
 | `DEEPSEEK_MODEL` | `deepseek-v4-flash` | DeepSeek 翻译模型 |
+| `MODEL` | 空 | DeepSeek 模型别名；未设置 `DEEPSEEK_MODEL` 时使用，例如 `deepseek-v4-pro` |
+| `THINK_LEVEL` | 空 | DeepSeek 思考强度别名；未设置 `DEEPSEEK_REASONING_EFFORT` 时使用，例如 `max` |
+| `API_KEY` | 空 | DeepSeek API key 兼容别名；不会写入日志或任务历史 |
+| `DEEPSEEK_REASONING_EFFORT` | `high` | DeepSeek `reasoning_effort`，支持 `high` / `max` |
 
 ### 阶段 1 后端运行时
 
@@ -68,6 +84,7 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 - `POST /api/jobs/mock`
 - `POST /api/jobs/asr`
 - `POST /api/jobs/lada`
+- `POST /api/jobs/translate`
 
 ### 阶段 4 LADA
 
@@ -80,6 +97,42 @@ LADA 页面会调用 `LADA_CLI_PATH` 指向的 `lada-cli.exe`，并把恢复后�
 & "D:\lada\lada-cli.exe" --list-devices
 & "D:\lada\lada-cli.exe" --list-encoding-presets
 ```
+
+### 阶段 5 DeepSeek 字幕翻译
+
+翻译页面读取 SRT 字幕并输出 `translated.srt`。输入可以来自历史 ASR 任务的 `subtitle` 产物、本机 SRT 文件路径，或直接粘贴 SRT 内容。后端只翻译字幕正文，重建输出时保留原 SRT 序号和时间轴；失败或取消时会保留已完成分块的 `translation.partial.srt`。
+
+DeepSeek API 使用 `POST https://api.deepseek.com/chat/completions`，请求体包含 `model`、`messages`、`thinking: {"type":"enabled"}`、`reasoning_effort`、`temperature`、`max_tokens`。`.env.example` 风格变量可直接映射：
+
+```powershell
+$env:API_KEY="<token>"
+$env:MODEL="deepseek-v4-pro"
+$env:THINK_LEVEL="max"
+```
+
+后端运行时会静默读取项目根目录 `.env`，但不会输出 API key，也不会把 API key 写入任务历史、日志或前端配置。
+
+### Web API 和事件模型
+
+任务统一使用 `JobRecord`：`status` 为 `queued`、`running`、`succeeded`、`failed`、`canceled` 或 `interrupted`；`progress` 包含 `percent`、`done`、`total`、`elapsed_seconds`、`eta_seconds`；`artifacts` 只登记任务目录内产物。
+
+主要接口：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/health` | 后端健康检查 |
+| `GET` | `/api/config/defaults` | 返回非敏感默认配置和运行时目录 |
+| `POST` | `/api/uploads` | 浏览器上传音频/视频/SRT 文件 |
+| `GET` | `/api/jobs` | 任务历史 |
+| `GET` | `/api/jobs/{job_id}` | 任务详情 |
+| `POST` | `/api/jobs/{job_id}/cancel` | 请求取消任务 |
+| `GET` | `/api/jobs/{job_id}/events` | SSE 事件流：`status`、`progress`、`log`、`artifact`、`error` |
+| `GET` | `/api/artifacts/{job_id}/{artifact_name}` | 下载或打开任务产物 |
+| `POST` | `/api/jobs/asr` | 创建 ASR 任务 |
+| `POST` | `/api/jobs/lada` | 创建 LADA 去码任务 |
+| `POST` | `/api/jobs/translate` | 创建 DeepSeek SRT 翻译任务 |
+
+运行时目录 `uploads/`、`jobs/`、`output/`、`cache/`、`models/` 和前端构建目录均已在 `.gitignore` 中排除。
 
 ## 前置条件
 

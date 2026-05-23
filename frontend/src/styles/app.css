@@ -22,7 +22,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -173,14 +174,26 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
-  min-height: 42px;
   border: 1px solid #c9bea9;
   border-radius: 8px;
-  padding: 0 12px;
   background: #fffdf7;
   color: #1d2522;
+}
+
+input,
+select {
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+textarea {
+  min-height: 120px;
+  padding: 10px 12px;
+  resize: vertical;
+  line-height: 1.45;
 }
 
 input[type="checkbox"] {
@@ -202,6 +215,10 @@ input[type="checkbox"] {
 .segmented-control button {
   background: transparent;
   color: #42514c;
+}
+
+.segmented-control.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .form-grid {

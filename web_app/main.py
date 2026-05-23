@@ -21,6 +21,7 @@ from web_app.jobs import (
 )
 from web_app.runners.asr import run_asr_web_job
 from web_app.runners.lada import run_lada_web_job
+from web_app.runners.translate import run_translate_web_job
 from web_app.schemas import (
     AsrJobRequest,
     CancelJobResponse,
@@ -28,9 +29,10 @@ from web_app.schemas import (
     JobListResponse,
     LadaJobRequest,
     MockJobRequest,
+    TranslateJobRequest,
     UploadResponse,
 )
-from web_app.settings import get_runtime_paths, get_web_settings
+from web_app.settings import get_deepseek_api_key, get_runtime_paths, get_web_settings
 
 
 settings = get_web_settings()
@@ -222,6 +224,83 @@ async def create_lada_job(request: LadaJobRequest):
 
     async def runner(reporter, cancel_token) -> None:
         await run_lada_web_job(request, settings, reporter, cancel_token)
+
+    asyncio.create_task(job_manager.run_job(job.job_id, runner))
+    return response_job
+
+
+@app.post("/api/jobs/translate")
+async def create_translate_job(request: TranslateJobRequest):
+    if not get_deepseek_api_key(settings):
+        raise HTTPException(status_code=400, detail=f"DeepSeek API key 未配置，请设置 {settings.deepseek_api_key_env} 或 API_KEY")
+
+    runtime_defaults = {}
+    if "model" not in request.model_fields_set:
+        runtime_defaults["model"] = settings.deepseek_model
+    if "reasoning_effort" not in request.model_fields_set:
+        runtime_defaults["reasoning_effort"] = settings.deepseek_reasoning_effort
+    if "temperature" not in request.model_fields_set:
+        runtime_defaults["temperature"] = settings.deepseek_temperature
+    if "max_tokens" not in request.model_fields_set:
+        runtime_defaults["max_tokens"] = settings.deepseek_max_tokens
+    if "chunk_chars" not in request.model_fields_set:
+        runtime_defaults["chunk_chars"] = settings.deepseek_chunk_chars
+    if "target_language" not in request.model_fields_set:
+        runtime_defaults["target_language"] = settings.deepseek_target_language
+    if runtime_defaults:
+        request = request.model_copy(update=runtime_defaults)
+
+    source_kind = "text"
+    source_path: str | None = None
+    source_job_id = (request.source_job_id or "").strip() or None
+    artifact_name = (request.artifact_name or "subtitle").strip() or "subtitle"
+    runner_request = request
+
+    if source_job_id:
+        try:
+            artifact_path = job_manager.get_artifact_path(source_job_id, artifact_name)
+        except (ArtifactNotFoundError, InvalidArtifactPathError) as exc:
+            raise HTTPException(status_code=404, detail="Source artifact not found") from exc
+        source_kind = "artifact"
+        source_path = str(artifact_path)
+        runner_request = request.model_copy(
+            update={"input_text": None, "input_file": source_path, "source_job_id": None, "artifact_name": artifact_name}
+        )
+    elif request.input_file:
+        input_file = request.input_file.strip()
+        input_path = Path(input_file).expanduser()
+        if not input_path.is_file():
+            raise HTTPException(status_code=400, detail="Input SRT file does not exist")
+        source_kind = "path"
+        source_path = str(input_path.resolve())
+        runner_request = request.model_copy(update={"input_file": source_path})
+
+    metadata = {
+        "source_kind": source_kind,
+        "source_job_id": source_job_id,
+        "artifact_name": artifact_name if source_kind == "artifact" else None,
+        "input_file": source_path if source_kind in {"artifact", "path"} else None,
+        "input_chars": len(request.input_text or "") if source_kind == "text" else None,
+        "target_language": request.target_language,
+        "model": request.model,
+        "reasoning_effort": request.reasoning_effort,
+        "temperature": request.temperature,
+        "max_tokens": request.max_tokens,
+        "chunk_chars": request.chunk_chars,
+        "custom_prompt": bool((request.prompt_template or "").strip()),
+    }
+    try:
+        job = await job_manager.create_job(
+            "translate",
+            JobInput(source_kind=source_kind, path=source_path),
+            metadata=metadata,
+        )
+    except JobConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    response_job = job.model_copy(deep=True)
+
+    async def runner(reporter, cancel_token) -> None:
+        await run_translate_web_job(runner_request, settings, reporter, cancel_token)
 
     asyncio.create_task(job_manager.run_job(job.job_id, runner))
     return response_job

@@ -47,6 +47,16 @@ export async function createLadaJob(payload) {
   );
 }
 
+export async function createTranslateJob(payload) {
+  return readJson(
+    await fetch(`${API_BASE_URL}/api/jobs/translate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  );
+}
+
 export async function cancelJob(jobId) {
   return readJson(await fetch(`${API_BASE_URL}/api/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" }));
 }

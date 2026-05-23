@@ -8,6 +8,39 @@ from config import WebSettings
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _unquote_env_value(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
+
+
+def _load_project_env() -> None:
+    env_path = PROJECT_ROOT / ".env"
+    if not env_path.is_file():
+        return
+    try:
+        lines = env_path.read_text(encoding="utf-8-sig").splitlines()
+    except OSError:
+        return
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        name = name.strip()
+        if not name or name in os.environ:
+            continue
+        os.environ[name] = _unquote_env_value(value)
+
+
+_load_project_env()
+
+
 def _env_str(name: str, default: str) -> str:
     value = os.environ.get(name)
     return value if value not in (None, "") else default
@@ -79,7 +112,11 @@ def get_web_settings() -> WebSettings:
             defaults.deepseek_chat_completion_path,
         ),
         deepseek_api_key_env=_env_str("DEEPSEEK_API_KEY_ENV", defaults.deepseek_api_key_env),
-        deepseek_model=_env_str("DEEPSEEK_MODEL", defaults.deepseek_model),
+        deepseek_model=_env_str("DEEPSEEK_MODEL", _env_str("MODEL", defaults.deepseek_model)),
+        deepseek_reasoning_effort=_env_str(
+            "DEEPSEEK_REASONING_EFFORT",
+            _env_str("THINK_LEVEL", defaults.deepseek_reasoning_effort),
+        ),
         deepseek_temperature=_env_float("DEEPSEEK_TEMPERATURE", defaults.deepseek_temperature),
         deepseek_max_tokens=_env_int("DEEPSEEK_MAX_TOKENS", defaults.deepseek_max_tokens),
         deepseek_target_language=_env_str("DEEPSEEK_TARGET_LANGUAGE", defaults.deepseek_target_language),
@@ -90,8 +127,11 @@ def get_web_settings() -> WebSettings:
 
 def get_deepseek_api_key(settings: WebSettings | None = None) -> str | None:
     active_settings = settings or get_web_settings()
-    value = os.environ.get(active_settings.deepseek_api_key_env)
-    return value if value not in (None, "") else None
+    for name in (active_settings.deepseek_api_key_env, "DEEPSEEK_API_KEY", "API_KEY"):
+        value = os.environ.get(name)
+        if value not in (None, ""):
+            return value
+    return None
 
 
 def _project_path(value: str) -> Path:

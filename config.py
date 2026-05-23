@@ -7,14 +7,16 @@ DEFAULT_LADA_CLI_PATH = r"D:\lada\lada-cli.exe"
 DEFAULT_DEEPSEEK_API_BASE = "https://api.deepseek.com"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
 DEFAULT_DEEPSEEK_API_KEY_ENV = "DEEPSEEK_API_KEY"
-DEFAULT_TRANSLATION_PROMPT_TEMPLATE = """你是专业字幕翻译助手。请将下面文本翻译为{target_language}。
+DEFAULT_DEEPSEEK_REASONING_EFFORT = "high"
+DEFAULT_TRANSLATION_PROMPT_TEMPLATE = """你是专业字幕翻译助手。请将下面 SRT 字幕正文翻译为{target_language}。
 
 要求：
-1. 保持原有段落顺序和换行。
-2. 不要添加解释、标题或注释。
-3. 如果原文包含时间戳、编号或说话人标签，请原样保留。
+1. 只翻译每个 <SEG n> 标签中的字幕正文。
+2. 必须保留 <SEG n> 与 </SEG n> 标签，且不要增删或重排分段。
+3. 不要输出解释、标题、注释、Markdown 代码块或 SRT 时间轴。
+4. 如果正文包含人名、专有名词、音效标记或 HTML 标签，请尽量保留语义和结构。
 
-原文：
+字幕正文：
 {text}"""
 
 
@@ -84,6 +86,7 @@ class WebSettings:
     deepseek_chat_completion_path: str = "/chat/completions"
     deepseek_api_key_env: str = DEFAULT_DEEPSEEK_API_KEY_ENV
     deepseek_model: str = DEFAULT_DEEPSEEK_MODEL
+    deepseek_reasoning_effort: str = DEFAULT_DEEPSEEK_REASONING_EFFORT
     deepseek_temperature: float = 0.2
     deepseek_max_tokens: int = 4096
     deepseek_target_language: str = "简体中文"

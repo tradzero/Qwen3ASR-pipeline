@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from config import Config, WebSettings
 
@@ -8,6 +8,7 @@ from config import Config, WebSettings
 JobType = Literal["mock", "asr", "lada", "translate"]
 JobStatus = Literal["queued", "running", "succeeded", "failed", "canceled", "interrupted"]
 JobEventType = Literal["progress", "log", "artifact", "status", "error"]
+DeepSeekReasoningEffort = Literal["low", "medium", "high", "xhigh", "max"]
 
 
 class JobProgress(BaseModel):
@@ -78,6 +79,31 @@ class LadaJobRequest(BaseModel):
     device: str | None = _WEB_DEFAULTS.lada_device
     fp16: bool | None = _WEB_DEFAULTS.lada_fp16
     max_clip_length: int | None = Field(default=_WEB_DEFAULTS.lada_max_clip_length, ge=1, le=MAX_LADA_CLIP_LENGTH)
+
+
+class TranslateJobRequest(BaseModel):
+    input_text: str | None = None
+    input_file: str | None = None
+    source_job_id: str | None = None
+    artifact_name: str | None = "subtitle"
+    target_language: str = Field(default=_WEB_DEFAULTS.deepseek_target_language, min_length=1)
+    model: str = Field(default=_WEB_DEFAULTS.deepseek_model, min_length=1)
+    reasoning_effort: DeepSeekReasoningEffort = _WEB_DEFAULTS.deepseek_reasoning_effort
+    temperature: float = Field(default=_WEB_DEFAULTS.deepseek_temperature, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=_WEB_DEFAULTS.deepseek_max_tokens, ge=1)
+    chunk_chars: int = Field(default=_WEB_DEFAULTS.deepseek_chunk_chars, ge=500, le=30000)
+    prompt_template: str | None = None
+
+    @model_validator(mode="after")
+    def validate_single_source(self) -> "TranslateJobRequest":
+        sources = [
+            bool((self.input_text or "").strip()),
+            bool((self.input_file or "").strip()),
+            bool((self.source_job_id or "").strip()),
+        ]
+        if sum(sources) != 1:
+            raise ValueError("Exactly one of input_text, input_file, or source_job_id is required")
+        return self
 
 
 _ASR_DEFAULTS = Config()

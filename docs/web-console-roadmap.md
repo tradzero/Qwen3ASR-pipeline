@@ -389,17 +389,20 @@ npm --prefix frontend run build
 
 ## 阶段 5：DeepSeek 手动翻译
 
+状态：SRT 字幕翻译实现中；已按 DeepSeek 2026 文档核对 `chat/completions`、`deepseek-v4-pro/flash`、`thinking` 和 `reasoning_effort` 字段。
+
 ### 目标
 
-支持从 ASR 文本或粘贴文本手动触发 DeepSeek 翻译任务。
+支持从 ASR SRT 字幕、SRT 文件路径或粘贴的 SRT 内容手动触发 DeepSeek 翻译任务，输出保留原时间轴的 `translated.srt`。
 
 ### 范围
 
-- 新增 DeepSeek 翻译配置：API base、model、temperature、max tokens、API key env、prompt 模板。
+- 新增 DeepSeek 翻译配置：API base、model、thinking/reasoning effort、temperature、max tokens、API key env、prompt 模板。
 - 新增 translate runner，使用 `httpx` 调用 `POST https://api.deepseek.com/chat/completions`。
-- 支持输入来源：ASR artifact 路径、历史 job_id、用户粘贴文本。
-- 长文本按段落或字符预算分块，请求完成后合并为 `translated.txt`。
-- 前端新增翻译面板：选择历史 ASR 输出、目标语言、prompt 预览/编辑、运行翻译。
+- 支持输入来源：ASR `subtitle` artifact、SRT 文件路径、用户粘贴 SRT。
+- 按 SRT block 和字符预算分块，只翻译字幕正文，重建时保留序号和时间轴。
+- 请求完成后合并为 `translated.srt`；失败或取消时保留已完成分块的 `translation.partial.srt`。
+- 前端新增翻译面板：选择历史 ASR 字幕、目标语言、模型、思考强度、prompt 预览/编辑、运行翻译。
 - 无 API key 时给出清晰错误，不发起请求。
 
 ### 主要文件
@@ -413,33 +416,37 @@ npm --prefix frontend run build
 ### 审查重点
 
 - API key 不进入日志、历史、异常堆栈或前端持久化。
-- DeepSeek 请求体符合文档：`model`、`messages` 必填。
-- 分块策略不会打乱段落顺序。
+- DeepSeek 请求体符合文档：`model`、`messages` 必填，并发送 `thinking: {"type":"enabled"}` 与 `reasoning_effort`。
+- 分块策略不会打乱 SRT block 顺序，也不会翻译时间轴。
 - 请求失败时已完成分块不丢失，错误信息可读。
 - prompt 模板有默认值，也允许用户在 UI 中临时覆盖。
-- 翻译输出文件只写入任务产物目录，不覆盖 ASR 原始文本。
+- 翻译输出文件只写入任务产物目录，不覆盖 ASR 原始字幕。
 
 ### 验证
 
 ```powershell
-$env:DEEPSEEK_API_KEY="<token>"
-python -m compileall .
+$env:API_KEY="<token>"
+$env:MODEL="deepseek-v4-pro"
+$env:THINK_LEVEL="max"
+python -m compileall web_app
 npm --prefix frontend run build
 ```
 
 手动检查：
 
 - 无 API key 时创建翻译任务会失败并提示配置环境变量。
-- 使用短文本翻译成功，生成 `translated.txt`。
-- 使用 ASR 输出文件作为输入时，任务历史能关联来源。
+- 使用短 SRT 翻译成功，生成 `translated.srt`，时间轴不变。
+- 使用 ASR `subtitle` artifact 作为输入时，任务历史能关联来源。
 - 取消翻译任务时，在分块边界停止。
 
 ### 退出标准
 
-- 翻译任务可手动运行，并能生成文本产物。
+- 翻译任务可手动运行，并能生成 SRT 产物。
 - Secret 处理通过审查。
 
 ## 阶段 6：收尾、文档和回归验证
+
+状态：已补 Web 快速启动、`.env.example`、API/事件模型、安全说明和 `scripts/start-web.ps1`；回归验证记录见本阶段验证输出。
 
 ### 目标
 
@@ -448,7 +455,7 @@ npm --prefix frontend run build
 ### 范围
 
 - README 增加完整 Web 模式安装、启动、环境变量、LADA 路径配置和常见问题。
-- 增加一键启动脚本或明确的 PowerShell 启动步骤。
+- 增加一键启动脚本 `scripts/start-web.ps1` 和 PowerShell 启动步骤。
 - 固化 API 和任务事件模型文档。
 - 统一错误展示和日志截断策略。
 - 确认输出目录、上传目录、历史目录都在 `.gitignore` 中。
@@ -503,7 +510,7 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 | 2 | ASR Web runner | CLI 不回归，进度事件完整 | 短视频 Web ASR 成功 |
 | 3 | React 控制台 | 参数和状态表达清晰 | 页面可启动 ASR 并展示产物 |
 | 4 | LADA runner 和 UI | subprocess 安全、取消可靠 | 短视频 LADA 成功/取消 |
-| 5 | DeepSeek 翻译 | secret 不泄漏、分块有序 | 短文本翻译成功 |
+| 5 | DeepSeek 翻译 | secret 不泄漏、分块有序 | 短 SRT 翻译成功 |
 | 6 | 文档、脚本、回归 | 可维护、可复现 | 全流程回归通过 |
 
 ## 已知风险和处理策略
@@ -524,5 +531,5 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 - Pipeline job：把 LADA、ASR、翻译串成可选流水线。
 - SQLite 历史：替代 JSON，支持更多查询和大历史量。
 - ASR 服务模式：模型常驻显存，减少频繁启动成本。
-- 翻译版 SRT：保留原时间轴，输出 bilingual 或 translated SRT。
+- 双语字幕输出：在现有 translated SRT 之外输出 bilingual SRT。
 - LADA 参数探测：从 `--list-devices`、`--list-encoding-presets` 动态生成表单选项。
