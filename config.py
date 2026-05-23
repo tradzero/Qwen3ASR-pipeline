@@ -73,6 +73,9 @@ class WebSettings:
     asr_cache_dir: str = "./cache"
     asr_device_map: str = "cuda:0"
     asr_dtype: str = "bfloat16"
+    warmup_on_startup: bool = True
+    warmup_vad: bool = True
+    warmup_asr: bool = True
 
     # LADA 去码
     lada_cli_path: str = DEFAULT_LADA_CLI_PATH

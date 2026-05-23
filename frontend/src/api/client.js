@@ -15,6 +15,10 @@ export async function getHealth() {
   return readJson(response);
 }
 
+export async function getWarmupStatus() {
+  return readJson(await fetch(`${API_BASE_URL}/api/warmup`));
+}
+
 export async function getDefaults() {
   return readJson(await fetch(`${API_BASE_URL}/api/config/defaults`));
 }

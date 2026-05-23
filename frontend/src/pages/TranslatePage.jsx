@@ -4,10 +4,7 @@ import {
   cancelJob,
   createTranslateJob,
   getDefaults,
-  getJob,
   listJobs,
-  subscribeJobEvents,
-  TERMINAL_STATUSES,
 } from "../api/client.js";
 import { JobDetail } from "../components/JobDetail.jsx";
 import { Panel } from "../components/Panel.jsx";
@@ -52,14 +49,12 @@ function hasSubtitleArtifact(job) {
   return subtitleArtifacts(job).length > 0;
 }
 
-export function TranslatePage() {
+export function TranslatePage({ activeJob, setActiveJob, streamMode, jobError, setJobError }) {
   const [sourceMode, setSourceMode] = useState("job");
   const [form, setForm] = useState(initialForm);
   const [jobs, setJobs] = useState([]);
-  const [activeJob, setActiveJob] = useState(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [streamMode, setStreamMode] = useState("idle");
 
   useEffect(() => {
     let alive = true;
@@ -86,55 +81,6 @@ export function TranslatePage() {
     };
   }, []);
 
-  useEffect(() => {
-    const jobId = activeJob?.job_id;
-    if (!jobId || TERMINAL_STATUSES.has(activeJob.status)) {
-      return undefined;
-    }
-
-    let alive = true;
-    let closeEvents = null;
-    let intervalId = null;
-    const refreshJob = async () => {
-      try {
-        const nextJob = await getJob(jobId);
-        if (!alive) {
-          return;
-        }
-        setActiveJob(nextJob);
-        if (TERMINAL_STATUSES.has(nextJob.status)) {
-          closeEvents?.();
-          window.clearInterval(intervalId);
-          setStreamMode("closed");
-        }
-      } catch (nextError) {
-        if (alive) {
-          setStreamMode("polling");
-          setError(nextError.message);
-        }
-      }
-    };
-
-    setStreamMode("live");
-    closeEvents = subscribeJobEvents(
-      jobId,
-      () => refreshJob(),
-      () => {
-        if (alive) {
-          setStreamMode("polling");
-        }
-      },
-    );
-    intervalId = window.setInterval(refreshJob, 3000);
-    refreshJob();
-
-    return () => {
-      alive = false;
-      closeEvents?.();
-      window.clearInterval(intervalId);
-    };
-  }, [activeJob?.job_id]);
-
   const updateField = (name, value) => {
     setForm((current) => ({ ...current, [name]: value }));
   };
@@ -157,6 +103,7 @@ export function TranslatePage() {
     event.preventDefault();
     setSubmitting(true);
     setError("");
+    setJobError?.("");
 
     try {
       const payload = {
@@ -310,6 +257,7 @@ export function TranslatePage() {
       </Panel>
       <Panel title="任务进度">
         <div className="stream-line">{streamMode === "live" ? "SSE live" : streamMode === "polling" ? "polling" : "idle"}</div>
+        {jobError ? <div className="error-box">{jobError}</div> : null}
         <JobDetail job={activeJob} busy={submitting} onCancel={requestCancel} />
       </Panel>
     </div>

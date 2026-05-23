@@ -34,10 +34,12 @@ from web_app.schemas import (
     UploadResponse,
 )
 from web_app.settings import get_deepseek_api_key, get_runtime_paths, get_web_settings
+from web_app.warmup import WarmupManager
 
 
 settings = get_web_settings()
 job_manager = JobManager(settings)
+warmup_manager = WarmupManager(settings)
 
 app = FastAPI(title="Qwen3-ASR Web Console", version="0.1.0")
 
@@ -53,6 +55,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def startup_warmup() -> None:
+    warmup_manager.start_background()
 
 
 def _get_job_or_404(job_id: str):
@@ -110,11 +117,17 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/warmup")
+async def warmup_status() -> dict:
+    return warmup_manager.snapshot()
+
+
 @app.get("/api/config/defaults")
 async def config_defaults() -> dict:
     return {
         "asr": asdict(Config()),
         "web": asdict(settings),
+        "warmup": warmup_manager.snapshot(),
         "runtime_paths": {name: str(path) for name, path in get_runtime_paths(settings).items()},
     }
 
@@ -208,6 +221,9 @@ async def create_mock_job(request: MockJobRequest):
 
 @app.post("/api/jobs/asr")
 async def create_asr_job(request: AsrJobRequest):
+    if warmup_manager.is_blocking():
+        raise HTTPException(status_code=409, detail="ASR/VAD 模型预热中，请等待预热完成后再启动任务")
+
     input_file = request.input_file.strip()
     if not input_file:
         raise HTTPException(status_code=422, detail="input_file is required")

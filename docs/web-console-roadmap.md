@@ -6,7 +6,7 @@
 
 - 前端技术栈：React + Vite。
 - 后端技术栈：FastAPI + SSE；第一版只需要服务端向浏览器推送任务事件，后续再按需升级 WebSocket。
-- 视频载入：支持浏览器上传文件，也支持输入本机路径、盘符路径或 UNC/NAS 路径。
+- 视频载入：第一版以输入本机路径、盘符路径或 UNC/NAS 路径为主；浏览器上传 API 保留为兜底能力，但主界面不再复制大文件到 Web 目录。
 - 任务关系：ASR、LADA、翻译第一版是三个独立任务，不做强制流水线编排。
 - 翻译方式：手动触发 DeepSeek 翻译 SRT 字幕；prompt 放在 `config.py`；API key 使用环境变量，输出保留原时间轴的 SRT。
 - 任务能力：第一版同一时刻只运行一个重任务，支持取消任务和保存任务历史。
@@ -46,7 +46,7 @@ qwen3asr-pipeline/
 │       ├── components/
 │       ├── pages/
 │       └── styles/
-├── uploads/                   # 浏览器上传文件，运行时生成
+├── uploads/                   # 可选浏览器上传文件，运行时生成
 ├── jobs/                      # 任务历史和运行态快照，运行时生成
 └── docs/web-console-roadmap.md
 ```
@@ -69,7 +69,7 @@ qwen3asr-pipeline/
     "eta_seconds": null
   },
   "input": {
-    "source_kind": "upload | path",
+    "source_kind": "path | url | artifact | text",
     "path": "..."
   },
   "artifacts": [
@@ -99,8 +99,9 @@ qwen3asr-pipeline/
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/health` | 服务健康检查 |
+| GET | `/api/warmup` | VAD/ASR 启动预热状态 |
 | GET | `/api/config/defaults` | 返回 ASR、LADA、翻译默认配置 |
-| POST | `/api/uploads` | 上传视频或音频，返回服务端路径 |
+| POST | `/api/uploads` | 可选上传接口，返回服务端路径 |
 | GET | `/api/jobs` | 任务历史列表 |
 | GET | `/api/jobs/{job_id}` | 任务详情 |
 | POST | `/api/jobs/{job_id}/cancel` | 请求取消任务 |
@@ -273,7 +274,7 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 
 ## 阶段 3：React 前端基础体验
 
-状态：已实现基础体验，待审查和提交。已接入上传、路径输入、ASR 参数表单、任务详情、实时事件、轮询回退、取消、产物下载和历史列表。
+状态：已实现基础体验，待审查和提交。已接入本机/UNC 路径输入、ASR 参数表单、任务详情、实时事件、轮询回退、取消、产物下载和历史列表。
 
 ### 目标
 
@@ -282,9 +283,9 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 ### 范围
 
 - React + Vite 项目初始化。
-- 实现服务状态、任务 tabs、上传/路径输入、参数表单、任务详情、实时日志、历史列表。
+- 实现服务状态、预热 loading、任务 tabs、本机/UNC 路径输入、参数表单、任务详情、实时日志、历史列表。
 - ASR 面板接入阶段 2 API。
-- 上传文件显示浏览器上传进度，并展示服务端保存路径、文件大小和剩余磁盘不足时的错误。
+- 任务进度在切换页面后继续显示，日志默认贴底并允许用户上滑查看历史。
 - 前端读取 SSE，断线后能回退轮询任务详情。
 
 ### 主要文件
@@ -299,10 +300,10 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 
 - 页面第一屏就是实际控制台，不做营销页。
 - 表单参数与后端默认配置一致。
-- 路径输入和上传输入的状态互斥清晰。
+- 本机路径、盘符路径和 UNC/NAS 路径输入清晰。
 - 任务运行时取消按钮、日志和产物区域状态明确。
 - CSS 有稳定尺寸约束，日志区和进度条不会挤压布局。
-- 大文件上传失败、后端断开、任务失败三种错误在 UI 上能区分。
+- 后端断开、任务失败和预热失败三种错误在 UI 上能区分。
 
 ### 验证
 
@@ -316,8 +317,9 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 手动检查：
 
 - 打开 Vite 页面，能看到后端健康状态。
-- 上传小文件后返回 server path。
+- 输入本机路径或 UNC/NAS 路径后可启动 ASR。
 - 从页面启动 ASR，进度和日志实时更新。
+- 切换页面后当前任务进度仍保留。
 - 刷新页面后历史任务仍可见。
 - 任务完成后可下载 TXT/SRT。
 
@@ -487,8 +489,8 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 
 最终手动回归：
 
-- Web 上传文件。
 - Web 路径输入。
+- Web 预热 loading。
 - ASR 成功、失败、取消。
 - LADA 成功、失败、取消。
 - DeepSeek 翻译成功、缺少 key、取消。
@@ -524,7 +526,7 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 | DeepSeek 长文本成本和限速 | 翻译失败或耗时长 | 分块、重试、错误可见；不默认自动翻译 |
 | 本机路径通过 Web 暴露 | 安全风险 | 默认只监听 localhost，不做远程访问 |
 | 任意 artifact 路径下载 | 可能泄漏本机文件 | 下载接口只允许返回任务登记过的产物 |
-| 浏览器上传大视频 | 占用磁盘和内存 | 流式写入、限制大小、上传前检查剩余空间 |
+| 浏览器无法暴露真实本机路径 | 不能用 file input 获取 `D:\...` 或 `\\NAS\...` | 主界面使用手工路径输入，保留上传 API 仅作兜底 |
 
 ## 后续可选增强
 

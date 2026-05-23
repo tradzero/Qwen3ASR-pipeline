@@ -86,6 +86,11 @@ def _env_optional_bool(name: str, default: bool | None) -> bool | None:
     raise ValueError(f"Invalid boolean value for {name}: {value}")
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = _env_optional_bool(name, default)
+    return bool(value)
+
+
 @lru_cache(maxsize=1)
 def get_web_settings() -> WebSettings:
     defaults = WebSettings()
@@ -101,6 +106,9 @@ def get_web_settings() -> WebSettings:
         asr_cache_dir=_env_str("WEB_ASR_CACHE_DIR", defaults.asr_cache_dir),
         asr_device_map=_env_str("WEB_ASR_DEVICE_MAP", defaults.asr_device_map),
         asr_dtype=_env_str("WEB_ASR_DTYPE", defaults.asr_dtype),
+        warmup_on_startup=_env_bool("WEB_WARMUP_ON_STARTUP", defaults.warmup_on_startup),
+        warmup_vad=_env_bool("WEB_WARMUP_VAD", defaults.warmup_vad),
+        warmup_asr=_env_bool("WEB_WARMUP_ASR", defaults.warmup_asr),
         lada_cli_path=_env_str("LADA_CLI_PATH", defaults.lada_cli_path),
         lada_output_dir=_env_str("LADA_OUTPUT_DIR", defaults.lada_output_dir),
         lada_encoding_preset=_env_optional_str("LADA_ENCODING_PRESET", defaults.lada_encoding_preset),

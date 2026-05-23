@@ -1,7 +1,25 @@
+import threading
+
 import numpy as np
 from silero_vad import get_speech_timestamps, load_silero_vad
 
 from audio import WAV_SAMPLE_RATE
+
+
+_VAD_MODEL = None
+_VAD_MODEL_LOCK = threading.Lock()
+
+
+def get_vad_model():
+    global _VAD_MODEL
+    with _VAD_MODEL_LOCK:
+        if _VAD_MODEL is None:
+            _VAD_MODEL = load_silero_vad()
+        return _VAD_MODEL
+
+
+def warmup_vad() -> None:
+    get_vad_model()
 
 
 def process_vad(
@@ -18,7 +36,7 @@ def process_vad(
     返回 list[(start_sample, end_sample, wav_segment)]。
     """
     try:
-        vad_model = load_silero_vad()
+        vad_model = get_vad_model()
         speech_timestamps = get_speech_timestamps(
             wav,
             vad_model,

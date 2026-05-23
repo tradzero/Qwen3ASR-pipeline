@@ -141,6 +141,22 @@ h1 {
   gap: 16px;
 }
 
+.warmup-shell {
+  display: grid;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.warmup-status {
+  display: grid;
+  gap: 12px;
+  color: #42514c;
+}
+
+.warmup-error {
+  margin-bottom: 16px;
+}
+
 .panel {
   border: 1px solid #d4c8b1;
   border-radius: 8px;
@@ -302,6 +318,21 @@ input[type="checkbox"] {
   height: 100%;
   border-radius: inherit;
   background: #296759;
+}
+
+.progress-fill.indeterminate {
+  width: 38%;
+  animation: warmup-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes warmup-slide {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  100% {
+    transform: translateX(280%);
+  }
 }
 
 .job-detail {

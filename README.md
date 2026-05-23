@@ -14,7 +14,7 @@
 
 ## Web 控制台
 
-本项目的本地 Web 控制台使用 React + Vite 前端和 FastAPI 后端，当前已支持网页上传/路径载入、ASR 任务进度展示、LADA 去码任务进度展示、DeepSeek SRT 字幕翻译、任务历史和产物下载。详细阶段、审查点和验证清单见 [docs/web-console-roadmap.md](docs/web-console-roadmap.md)。
+本项目的本地 Web 控制台使用 React + Vite 前端和 FastAPI 后端，当前已支持本机/UNC 路径载入、启动预热、ASR 任务进度展示、LADA 去码任务进度展示、DeepSeek SRT 字幕翻译、任务历史和产物下载。详细阶段、审查点和验证清单见 [docs/web-console-roadmap.md](docs/web-console-roadmap.md)。
 
 ### Web 快速启动
 
@@ -27,6 +27,15 @@ if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
 默认后端监听 `http://127.0.0.1:7860`，前端监听 `http://127.0.0.1:5173`。后端启动时会静默加载项目根目录 `.env`，不会打印 API key；已有进程环境变量优先于 `.env`。本工具默认只适合本机使用，不建议把 `WEB_HOST` 改成 `0.0.0.0`。局域网访问会暴露本机路径、上传文件和任务执行能力，需自行承担风险。
+
+Web 页面以路径输入为主，适合服务端和浏览器都在本机运行的场景；ASR/LADA 输入可填写 `D:\media\video.mp4` 或 `\\NAS\media\video.mp4`。标准浏览器不会向网页暴露真实绝对路径，所以文件选择控件不能可靠替代本机/UNC 路径输入。
+
+`start-web.ps1` 会在后端窗口中激活 conda 环境，默认环境名是 `qwen3-asr`。如需覆盖：
+
+```powershell
+.\scripts\start-web.ps1 -CondaEnv qwen3-asr
+.\scripts\start-web.ps1 -CondaHook "$HOME\miniconda3\shell\condabin\conda-hook.ps1"
+```
 
 ### 阶段 0 基线
 
@@ -48,7 +57,10 @@ Web 运行配置使用单独的 `WebSettings`，不会改变 CLI 的 ASR `Config
 | `WEB_HOST` | `127.0.0.1` | 后续 FastAPI 服务监听地址 |
 | `WEB_PORT` | `7860` | 后续 FastAPI 服务端口 |
 | `WEB_CORS_ORIGINS` | `http://127.0.0.1:5173,http://localhost:5173` | 允许访问后端的前端 Origin；`start-web.ps1` 会按 `-FrontendPort` 自动设置 |
-| `WEB_UPLOAD_DIR` | `./uploads` | 浏览器上传文件目录 |
+| `WEB_WARMUP_ON_STARTUP` | `true` | 后端启动后预热 VAD/ASR，前端等待预热完成后显示任务页 |
+| `WEB_WARMUP_VAD` | `true` | 启动时加载 Silero VAD |
+| `WEB_WARMUP_ASR` | `true` | 启动时加载 ASR/ForcedAligner，并在任务中复用模型 |
+| `WEB_UPLOAD_DIR` | `./uploads` | 可选浏览器上传接口的保存目录；主界面默认使用本机/UNC 路径 |
 | `WEB_JOB_DIR` | `./jobs` | 任务历史和运行态目录 |
 | `WEB_ARTIFACT_DIR` | `./output/web` | Web 任务通用产物目录 |
 | `LADA_CLI_PATH` | `D:\lada\lada-cli.exe` | LADA CLI 可执行文件路径 |
@@ -76,6 +88,7 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 当前可用接口：
 
 - `GET /api/health`
+- `GET /api/warmup`
 - `GET /api/config/defaults`
 - `GET /api/jobs`
 - `GET /api/jobs/{job_id}`
@@ -124,7 +137,7 @@ $env:THINK_LEVEL="max"
 |------|------|------|
 | `GET` | `/api/health` | 后端健康检查 |
 | `GET` | `/api/config/defaults` | 返回非敏感默认配置和运行时目录 |
-| `POST` | `/api/uploads` | 浏览器上传音频/视频/SRT 文件 |
+| `POST` | `/api/uploads` | 可选上传接口，返回服务端保存路径 |
 | `GET` | `/api/jobs` | 任务历史 |
 | `GET` | `/api/jobs/{job_id}` | 任务详情 |
 | `POST` | `/api/jobs/{job_id}/cancel` | 请求取消任务 |

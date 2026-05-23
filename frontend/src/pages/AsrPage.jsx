@@ -4,10 +4,6 @@ import {
   cancelJob,
   createAsrJob,
   getDefaults,
-  getJob,
-  subscribeJobEvents,
-  TERMINAL_STATUSES,
-  uploadFile,
 } from "../api/client.js";
 import { JobDetail } from "../components/JobDetail.jsx";
 import { Panel } from "../components/Panel.jsx";
@@ -46,16 +42,10 @@ function numberValue(value) {
   return Number(value);
 }
 
-export function AsrPage() {
-  const [inputMode, setInputMode] = useState("path");
+export function AsrPage({ activeJob, setActiveJob, streamMode, jobError, setJobError }) {
   const [form, setForm] = useState(initialForm);
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [uploadedFile, setUploadedFile] = useState(null);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [activeJob, setActiveJob] = useState(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [streamMode, setStreamMode] = useState("idle");
 
   useEffect(() => {
     let alive = true;
@@ -75,55 +65,6 @@ export function AsrPage() {
     };
   }, []);
 
-  useEffect(() => {
-    const jobId = activeJob?.job_id;
-    if (!jobId || TERMINAL_STATUSES.has(activeJob.status)) {
-      return undefined;
-    }
-
-    let alive = true;
-    let closeEvents = null;
-    let intervalId = null;
-    const refreshJob = async () => {
-      try {
-        const nextJob = await getJob(jobId);
-        if (!alive) {
-          return;
-        }
-        setActiveJob(nextJob);
-        if (TERMINAL_STATUSES.has(nextJob.status)) {
-          closeEvents?.();
-          window.clearInterval(intervalId);
-          setStreamMode("closed");
-        }
-      } catch (nextError) {
-        if (alive) {
-          setStreamMode("polling");
-          setError(nextError.message);
-        }
-      }
-    };
-
-    setStreamMode("live");
-    closeEvents = subscribeJobEvents(
-      jobId,
-      () => refreshJob(),
-      () => {
-        if (alive) {
-          setStreamMode("polling");
-        }
-      },
-    );
-    intervalId = window.setInterval(refreshJob, 3000);
-    refreshJob();
-
-    return () => {
-      alive = false;
-      closeEvents?.();
-      window.clearInterval(intervalId);
-    };
-  }, [activeJob?.job_id]);
-
   const updateField = (name, value) => {
     setForm((current) => ({ ...current, [name]: value }));
   };
@@ -132,20 +73,12 @@ export function AsrPage() {
     event.preventDefault();
     setSubmitting(true);
     setError("");
+    setJobError?.("");
 
     try {
-      let inputFile = form.input_file.trim();
-      if (inputMode === "upload") {
-        if (!selectedFile) {
-          throw new Error("请选择要上传的音频或视频文件。");
-        }
-        setUploadProgress(0);
-        const upload = await uploadFile(selectedFile, setUploadProgress);
-        setUploadedFile(upload);
-        inputFile = upload.path;
-      }
+      const inputFile = form.input_file.trim();
       if (!inputFile) {
-        throw new Error("请输入本机路径或先上传文件。");
+        throw new Error("请输入服务端可访问的本机路径、盘符路径或 UNC/NAS 路径。");
       }
 
       const request = {
@@ -194,36 +127,14 @@ export function AsrPage() {
     <div className="page-grid">
       <Panel title="ASR 任务">
         <form className="task-form" onSubmit={submitJob}>
-          <div className="segmented-control" aria-label="输入来源">
-            <button className={inputMode === "path" ? "active" : ""} onClick={() => setInputMode("path")} type="button">
-              路径
-            </button>
-            <button className={inputMode === "upload" ? "active" : ""} onClick={() => setInputMode("upload")} type="button">
-              上传
-            </button>
-          </div>
-
-          {inputMode === "path" ? (
-            <label>
-              输入路径
-              <input
-                onChange={(event) => updateField("input_file", event.target.value)}
-                placeholder="D:\\media\\video.mp4 或 \\NAS\\media\\video.mp4"
-                value={form.input_file}
-              />
-            </label>
-          ) : (
-            <div className="upload-box">
-              <input accept="audio/*,video/*" onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)} type="file" />
-              <div className="upload-progress"><span style={{ width: `${uploadProgress}%` }} /></div>
-              {uploadedFile ? (
-                <div className="upload-result">
-                  <p>{uploadedFile.filename} · {Math.round(uploadedFile.size_bytes / 1024)} KB</p>
-                  <code>{uploadedFile.path}</code>
-                </div>
-              ) : null}
-            </div>
-          )}
+          <label>
+            输入路径
+            <input
+              onChange={(event) => updateField("input_file", event.target.value)}
+              placeholder="D:\\media\\video.mp4 或 \\\\NAS\\media\\video.mp4"
+              value={form.input_file}
+            />
+          </label>
 
           <div className="form-grid">
             <label>
@@ -271,6 +182,7 @@ export function AsrPage() {
       </Panel>
       <Panel title="任务进度">
         <div className="stream-line">{streamMode === "live" ? "SSE live" : streamMode === "polling" ? "polling" : "idle"}</div>
+        {jobError ? <div className="error-box">{jobError}</div> : null}
         <JobDetail job={activeJob} busy={submitting} onCancel={requestCancel} />
       </Panel>
     </div>

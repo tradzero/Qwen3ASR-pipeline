@@ -2,6 +2,7 @@ from pathlib import Path
 import gc
 import os
 import platform
+import threading
 import time
 from collections.abc import Callable
 from typing import Any
@@ -20,6 +21,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_LOCAL_MODEL_DIR = PROJECT_ROOT / "models"
 USER_LOCAL_MODEL_DIR = Path.home() / "models"
 VALID_BACKENDS = {"auto", "vllm", "transformers"}
+_MODEL_CACHE: dict[tuple[Any, ...], Qwen3ASRModel] = {}
+_MODEL_CACHE_LOCK = threading.Lock()
 
 
 class TranscriptionCanceled(Exception):
@@ -83,7 +86,7 @@ def resolve_model_source(model: str | None) -> str | None:
     return model
 
 
-def init_model(config: Config) -> Qwen3ASRModel:
+def init_model(config: Config, use_cache: bool = True) -> Qwen3ASRModel:
     """初始化 ASR 模型。"""
     asr_model = config.model
     forced_aligner_model = config.forced_aligner_model
@@ -108,6 +111,7 @@ def init_model(config: Config) -> Qwen3ASRModel:
         max_new_tokens=config.max_new_tokens,
     )
 
+    aligner_source = None
     if config.return_time_stamps and forced_aligner_model:
         aligner_source = resolve_model_source(forced_aligner_model)
         if aligner_source != forced_aligner_model:
@@ -118,33 +122,66 @@ def init_model(config: Config) -> Qwen3ASRModel:
             device_map=config.device_map,
         )
 
-    if selected_backend == "transformers":
-        return Qwen3ASRModel.from_pretrained(
-            model_source,
-            dtype=_torch_dtype(config.dtype),
-            device_map=config.device_map,
-            **common_kwargs,
-        )
+    cache_key = (
+        selected_backend,
+        model_source,
+        aligner_source if config.return_time_stamps else None,
+        config.return_time_stamps,
+        config.device_map,
+        config.dtype,
+        config.gpu_memory_utilization,
+        config.max_inference_batch_size,
+        config.max_new_tokens,
+    )
 
-    try:
-        return Qwen3ASRModel.LLM(
-            model=model_source,
-            gpu_memory_utilization=config.gpu_memory_utilization,
-            **common_kwargs,
-        )
-    except ImportError as exc:
-        if config.backend.lower() == "auto":
-            print(f"[GPU] vLLM 后端不可用，回退到 transformers: {exc}")
+    def load_model() -> Qwen3ASRModel:
+        if selected_backend == "transformers":
             return Qwen3ASRModel.from_pretrained(
                 model_source,
                 dtype=_torch_dtype(config.dtype),
                 device_map=config.device_map,
                 **common_kwargs,
             )
-        raise ImportError(
-            "vLLM 后端在当前环境不可用。Windows 原生环境通常缺少 vllm._C，"
-            "请改用 --backend transformers，或在 WSL/Linux/Docker 中运行 --backend vllm。"
-        ) from exc
+
+        try:
+            return Qwen3ASRModel.LLM(
+                model=model_source,
+                gpu_memory_utilization=config.gpu_memory_utilization,
+                **common_kwargs,
+            )
+        except ImportError as exc:
+            if config.backend.lower() == "auto":
+                print(f"[GPU] vLLM 后端不可用，回退到 transformers: {exc}")
+                return Qwen3ASRModel.from_pretrained(
+                    model_source,
+                    dtype=_torch_dtype(config.dtype),
+                    device_map=config.device_map,
+                    **common_kwargs,
+                )
+            raise ImportError(
+                "vLLM 后端在当前环境不可用。Windows 原生环境通常缺少 vllm._C，"
+                "请改用 --backend transformers，或在 WSL/Linux/Docker 中运行 --backend vllm。"
+            ) from exc
+
+    if not use_cache:
+        return load_model()
+
+    with _MODEL_CACHE_LOCK:
+        cached_model = _MODEL_CACHE.get(cache_key)
+        if cached_model is not None:
+            print("[GPU] 复用已预热模型")
+            return cached_model
+        _MODEL_CACHE.clear()
+        clear_model_cache()
+        model = load_model()
+        _MODEL_CACHE[cache_key] = model
+        return model
+
+
+def clear_model_cache() -> None:
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 def transcribe_segments(

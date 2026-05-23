@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -136,10 +137,21 @@ class JobManager:
     def _persist_history(self) -> None:
         self.job_dir.mkdir(parents=True, exist_ok=True)
         payload = [job.model_dump(mode="json") for job in self.list_jobs()]
-        tmp_path = self.history_path.with_suffix(".json.tmp")
+        tmp_path = self.history_path.with_name(f"{self.history_path.name}.{os.getpid()}.{uuid4().hex}.tmp")
         with open(tmp_path, "w", encoding="utf-8") as file:
             json.dump(payload, file, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, self.history_path)
+        try:
+            for attempt in range(6):
+                try:
+                    os.replace(tmp_path, self.history_path)
+                    return
+                except PermissionError:
+                    if attempt == 5:
+                        raise
+                    time.sleep(0.08 * (attempt + 1))
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink(missing_ok=True)
 
     def list_jobs(self) -> list[JobRecord]:
         return sorted(self._jobs.values(), key=lambda job: job.created_at, reverse=True)

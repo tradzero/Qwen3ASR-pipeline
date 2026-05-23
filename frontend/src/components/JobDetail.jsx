@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 import { artifactUrl, TERMINAL_STATUSES } from "../api/client.js";
 
 function formatPercent(value) {
@@ -15,12 +17,40 @@ function formatSeconds(value) {
 }
 
 export function JobDetail({ job, onCancel, busy = false }) {
+  const logBoxRef = useRef(null);
+  const shouldStickToBottomRef = useRef(true);
+  const lastJobIdRef = useRef(null);
+
+  useEffect(() => {
+    const logBox = logBoxRef.current;
+    if (!logBox || !job) {
+      return;
+    }
+    if (lastJobIdRef.current !== job.job_id) {
+      shouldStickToBottomRef.current = true;
+      lastJobIdRef.current = job.job_id;
+    }
+    if (shouldStickToBottomRef.current) {
+      requestAnimationFrame(() => {
+        logBox.scrollTop = logBox.scrollHeight;
+      });
+    }
+  }, [job?.job_id, job?.logs?.length, job?.stage, job?.status]);
+
   if (!job) {
     return <div className="empty-state">没有正在查看的任务。</div>;
   }
 
   const progress = job.progress ?? {};
   const canCancel = Boolean(onCancel) && !TERMINAL_STATUSES.has(job.status);
+  const onLogScroll = () => {
+    const logBox = logBoxRef.current;
+    if (!logBox) {
+      return;
+    }
+    const distanceToBottom = logBox.scrollHeight - logBox.scrollTop - logBox.clientHeight;
+    shouldStickToBottomRef.current = distanceToBottom < 24;
+  };
 
   return (
     <div className="job-detail">
@@ -63,7 +93,7 @@ export function JobDetail({ job, onCancel, busy = false }) {
         )}
       </div>
 
-      <div className="log-box" aria-label="任务日志">
+      <div className="log-box" aria-label="任务日志" onScroll={onLogScroll} ref={logBoxRef}>
         {job.logs.length ? job.logs.map((line) => <div key={line}>{line}</div>) : <div>暂无日志。</div>}
       </div>
     </div>
