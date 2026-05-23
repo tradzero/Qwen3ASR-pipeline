@@ -16,6 +16,32 @@
 
 本项目计划增加本地 Web 控制台，使用 React + Vite 前端和 FastAPI 后端，支持网页上传/路径载入、ASR 任务进度展示、LADA 去码任务进度展示，以及手动 DeepSeek 翻译。详细阶段、审查点和验证清单见 [docs/web-console-roadmap.md](docs/web-console-roadmap.md)。
 
+### 阶段 0 基线
+
+阶段 0 已建立 Web 配置和前端空壳。后端服务入口、任务队列和真实任务 API 会在后续阶段接入。
+
+```powershell
+# Web 后端依赖
+pip install -r requirements-web.txt
+
+# 前端依赖和构建检查
+npm --prefix frontend install
+npm --prefix frontend run build
+```
+
+Web 运行配置使用单独的 `WebSettings`，不会改变 CLI 的 ASR `Config` 默认行为。常用环境变量：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `WEB_HOST` | `127.0.0.1` | 后续 FastAPI 服务监听地址 |
+| `WEB_PORT` | `7860` | 后续 FastAPI 服务端口 |
+| `WEB_UPLOAD_DIR` | `./uploads` | 浏览器上传文件目录 |
+| `WEB_JOB_DIR` | `./jobs` | 任务历史和运行态目录 |
+| `WEB_ARTIFACT_DIR` | `./output/web` | Web 任务通用产物目录 |
+| `LADA_CLI_PATH` | `D:\lada\lada-cli.exe` | LADA CLI 可执行文件路径 |
+| `DEEPSEEK_API_KEY_ENV` | `DEEPSEEK_API_KEY` | DeepSeek API key 所在环境变量名 |
+| `DEEPSEEK_MODEL` | `deepseek-v4-flash` | DeepSeek 翻译模型 |
+
 ## 前置条件
 
 - Python 3.12+
