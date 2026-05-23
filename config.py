@@ -44,12 +44,12 @@ class Config:
 
     # 推理引擎
     gpu_memory_utilization: float = 0.5
-    max_inference_batch_size: int = 1
+    max_inference_batch_size: int = 2
     max_new_tokens: int = 2048
 
     # VAD 切片
     segment_duration: int = 60  # 目标切片长度（秒）
-    max_segment_duration: int = 90  # 切片上限（秒）
+    max_segment_duration: int = 120  # 切片上限（秒）
 
     # 预处理缓存
     use_cache: bool = True

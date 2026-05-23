@@ -230,6 +230,7 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 - 从 `main.py` 抽出可复用的 ASR runner，例如 `run_asr_job(config, reporter, cancel_token)`。
 - `transcribe.py` 的 `transcribe_segments` 增加可选 `progress_callback` 和 `cancel_token`。
 - CPU 阶段上报：缓存检查、缓存命中/未命中、音频加载、VAD、缓存保存。
+- Web ASR 成功后清理当前输入的预处理缓存；失败或取消时保留缓存以便重试。
 - GPU 阶段上报：模型加载开始、模型加载完成、等待另一侧流水线。
 - 推理阶段上报：batch 开始、batch 完成、OOM 降级、单段重试、CUDA 峰值。
 - 输出阶段上报 TXT/SRT 产物路径。
@@ -248,6 +249,7 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 - CLI 入口仍只在 `if __name__ == "__main__"` 下执行。
 - vLLM/transformers 的 Windows 后端选择逻辑不被破坏。
 - 取消不会在写输出文件时留下被当作成功产物的半文件。
+- 成功任务会清理当前输入 cache，失败/取消任务仍可利用 cache 重试。
 - `model.transcribe` 正在执行时无法强杀是已知限制，文档和 UI 需要表达为“将在安全点取消”。
 
 ### 验证

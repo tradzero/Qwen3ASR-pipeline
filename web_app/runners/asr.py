@@ -61,6 +61,21 @@ class ThreadedReporterBridge:
         future.result()
 
 
+async def _clear_successful_preprocess_cache(config: Config, reporter: JobReporter) -> None:
+    if not config.use_cache:
+        return
+
+    from cache import clear_preprocess_cache, get_cache_dir
+
+    cache_dir = get_cache_dir(config)
+    try:
+        clear_preprocess_cache(config)
+    except OSError as exc:
+        await reporter.log(f"ASR 完成后清理预处理缓存失败，已忽略: {exc}")
+        return
+    await reporter.log(f"ASR 完成后已清理预处理缓存: {cache_dir}")
+
+
 async def run_asr_web_job(config: Config, reporter: JobReporter, cancel_token: CancelToken) -> None:
     from main import AsrJobCanceled, run_asr_job
     from transcribe import TranscriptionCanceled
@@ -81,5 +96,7 @@ async def run_asr_web_job(config: Config, reporter: JobReporter, cancel_token: C
             cancel_token=cancel_token,
             parallel_model_load=False,
         )
+        if not cancel_token.is_canceled:
+            await _clear_successful_preprocess_cache(config, reporter)
     except (AsrJobCanceled, TranscriptionCanceled):
         await reporter.log("ASR 任务检测到取消请求，准备退出。")

@@ -68,6 +68,7 @@ Web 运行配置使用单独的 `WebSettings`，不会改变 CLI 的 ASR `Config
 | `WEB_UPLOAD_DIR` | `./uploads` | 可选浏览器上传接口的保存目录；主界面默认使用本机/UNC 路径 |
 | `WEB_JOB_DIR` | `./jobs` | 任务历史和运行态目录 |
 | `WEB_ARTIFACT_DIR` | `./output/web` | Web 任务通用产物目录 |
+| `WEB_ASR_CACHE_DIR` | `./cache` | Web ASR 预处理缓存目录；成功任务会清理当前输入缓存，失败/取消保留以便重试 |
 | `LADA_CLI_PATH` | `D:\lada\lada-cli.exe` | LADA CLI 可执行文件路径 |
 | `LADA_OUTPUT_DIR` | `./output/lada` | LADA 无法写入输入文件同目录时使用的备用输出根目录 |
 | `LADA_ENCODING_PRESET` | 空 | LADA `--encoding-preset`；为空时使用 CLI 默认值 |
@@ -208,10 +209,10 @@ python main.py -i video.mp4 \
     --model Qwen/Qwen3-ASR-1.7B \
     --aligner-model Qwen/Qwen3-ForcedAligner-0.6B \
     --gpu-mem 0.5 \
-    --batch-size 1 \
+    --batch-size 2 \
     --max-tokens 2048 \
     --segment-duration 60 \
-    --max-segment 90 \
+    --max-segment 120 \
     --cache-dir ./cache \
     --language Chinese \
     --backend auto \
@@ -236,10 +237,10 @@ python main.py -i video.mp4 \
 | `--device-map` | `cuda:0` | transformers 后端和 ForcedAligner 的设备映射 |
 | `--dtype` | `bfloat16` | transformers 后端和 ForcedAligner 的 dtype，可选 `bfloat16`、`float16`、`float32` |
 | `--gpu-mem` | `0.5` | vLLM 后端 GPU 显存利用率；transformers 后端不使用 |
-| `--batch-size` | `1` | 最大推理批大小；12GB Windows transformers 后端建议保持 1 |
+| `--batch-size` | `2` | 最大推理批大小；显存不足时可降为 1 |
 | `--max-tokens` | `2048` | 最大生成 token 数 |
 | `--segment-duration` | `60` | VAD 目标切片长度（秒） |
-| `--max-segment` | `90` | VAD 切片上限（秒） |
+| `--max-segment` | `120` | VAD 切片上限（秒） |
 | `--cache-dir` | `./cache` | 音频/VAD 预处理缓存目录 |
 | `--no-cache` | 关闭 | 关闭音频/VAD 预处理缓存 |
 | `--refresh-cache` | 关闭 | 忽略并重建当前输入的音频/VAD 缓存 |
@@ -261,10 +262,10 @@ class Config:
     device_map: str = "cuda:0"
     dtype: str = "bfloat16"
     gpu_memory_utilization: float = 0.5   # 仅 vLLM 后端使用
-    max_inference_batch_size: int = 1     # 12GB Windows transformers 后端推荐 1
+    max_inference_batch_size: int = 2     # 显存不足时可降为 1
     max_new_tokens: int = 2048
     segment_duration: int = 60            # VAD 目标切片长度
-    max_segment_duration: int = 90        # VAD 切片上限
+    max_segment_duration: int = 120       # VAD 切片上限
     use_cache: bool = True
     cache_dir: str = "./cache"
     ...
