@@ -13,6 +13,7 @@
 - LADA 集成：默认调用 `D:\lada\lada-cli.exe`。
 - 安全边界：默认只绑定 `127.0.0.1`，不做多用户认证，不主动扫描媒体库。
 - 配置边界：现有 ASR `Config` 继续服务 CLI 和 ASR 参数；Web、LADA、DeepSeek、上传目录和任务目录放入单独的 `WebSettings`，避免把服务端运行配置混进 CLI。
+- Web 参数边界：ASR 任务表单只暴露每次任务会变化的安全参数，默认值从 `Config()` 派生；上传目录、任务目录、产物目录、缓存目录、设备映射和 dtype 等机器/路径/资源策略由 `WebSettings` 或环境变量控制，不从普通任务请求体任意覆盖。
 
 ## 非目标
 
@@ -229,6 +230,7 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 - GPU 阶段上报：模型加载开始、模型加载完成、等待另一侧流水线。
 - 推理阶段上报：batch 开始、batch 完成、OOM 降级、单段重试、CUDA 峰值。
 - 输出阶段上报 TXT/SRT 产物路径。
+- Web runner 为了避免坏输入或早期取消仍触发模型加载，先完成音频/VAD 预处理，再加载模型；CLI 保留 CPU/GPU 并行加载策略。
 
 ### 主要文件
 

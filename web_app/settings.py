@@ -64,6 +64,9 @@ def get_web_settings() -> WebSettings:
         artifact_dir=_env_str("WEB_ARTIFACT_DIR", defaults.artifact_dir),
         max_upload_size_mb=_env_int("WEB_MAX_UPLOAD_SIZE_MB", defaults.max_upload_size_mb),
         recent_log_lines=_env_int("WEB_RECENT_LOG_LINES", defaults.recent_log_lines),
+        asr_cache_dir=_env_str("WEB_ASR_CACHE_DIR", defaults.asr_cache_dir),
+        asr_device_map=_env_str("WEB_ASR_DEVICE_MAP", defaults.asr_device_map),
+        asr_dtype=_env_str("WEB_ASR_DTYPE", defaults.asr_dtype),
         lada_cli_path=_env_str("LADA_CLI_PATH", defaults.lada_cli_path),
         lada_output_dir=_env_str("LADA_OUTPUT_DIR", defaults.lada_output_dir),
         lada_encoding_preset=_env_optional_str("LADA_ENCODING_PRESET", defaults.lada_encoding_preset),
@@ -104,6 +107,7 @@ def get_runtime_paths(settings: WebSettings | None = None) -> dict[str, Path]:
         "upload_dir": _project_path(active_settings.upload_dir),
         "job_dir": _project_path(active_settings.job_dir),
         "artifact_dir": _project_path(active_settings.artifact_dir),
+        "asr_cache_dir": _project_path(active_settings.asr_cache_dir),
         "lada_output_dir": _project_path(active_settings.lada_output_dir),
     }
 

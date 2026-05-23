@@ -66,6 +66,11 @@ class WebSettings:
     max_upload_size_mb: int = 10240
     recent_log_lines: int = 500
 
+    # Web ASR 本机策略
+    asr_cache_dir: str = "./cache"
+    asr_device_map: str = "cuda:0"
+    asr_dtype: str = "bfloat16"
+
     # LADA 去码
     lada_cli_path: str = DEFAULT_LADA_CLI_PATH
     lada_output_dir: str = "./output/lada"

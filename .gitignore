@@ -15,6 +15,7 @@ jobs/
 output/
 models/
 files/
+testvoice/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/

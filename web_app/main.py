@@ -1,6 +1,7 @@
 import asyncio
 import json
 from dataclasses import asdict
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,7 +16,8 @@ from web_app.jobs import (
     JobNotFoundError,
     TERMINAL_STATUSES,
 )
-from web_app.schemas import CancelJobResponse, JobInput, JobListResponse, MockJobRequest
+from web_app.runners.asr import run_asr_web_job
+from web_app.schemas import AsrJobRequest, CancelJobResponse, JobInput, JobListResponse, MockJobRequest
 from web_app.settings import get_runtime_paths, get_web_settings
 
 
@@ -37,6 +39,11 @@ def _get_job_or_404(job_id: str):
         return job_manager.get_job(job_id)
     except JobNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Job not found") from exc
+
+
+def _is_remote_input(input_file: str) -> bool:
+    lowered = input_file.lower()
+    return lowered.startswith("http://") or lowered.startswith("https://")
 
 
 @app.get("/api/health")
@@ -110,22 +117,56 @@ async def create_mock_job(request: MockJobRequest):
     return response_job
 
 
+@app.post("/api/jobs/asr")
+async def create_asr_job(request: AsrJobRequest):
+    input_file = request.input_file.strip()
+    if not input_file:
+        raise HTTPException(status_code=422, detail="input_file is required")
+    if not _is_remote_input(input_file) and not Path(input_file).expanduser().is_file():
+        raise HTTPException(status_code=400, detail="Input file does not exist")
+
+    request = request.model_copy(update={"input_file": input_file})
+    try:
+        job = await job_manager.create_job(
+            "asr",
+            JobInput(source_kind="url" if _is_remote_input(input_file) else "path", path=input_file),
+            metadata=request.model_dump(mode="json"),
+        )
+    except JobConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    response_job = job.model_copy(deep=True)
+    config = request.to_config(output_dir=str(job_manager.artifact_dir / job.job_id))
+    runtime_paths = get_runtime_paths(settings)
+    config.cache_dir = str(runtime_paths["asr_cache_dir"])
+    config.device_map = settings.asr_device_map
+    config.dtype = settings.asr_dtype
+
+    async def runner(reporter, cancel_token) -> None:
+        await run_asr_web_job(config, reporter, cancel_token)
+
+    asyncio.create_task(job_manager.run_job(job.job_id, runner))
+    return response_job
+
+
 @app.get("/api/jobs/{job_id}/events")
 async def job_events(job_id: str):
-    job = _get_job_or_404(job_id)
+    _get_job_or_404(job_id)
     queue = job_manager.subscribe(job_id)
 
     async def event_stream():
-        initial = {
-            "event": "status",
-            "job_id": job.job_id,
-            "stage": job.stage,
-            "status": job.status,
-            "progress": job.progress.model_dump(mode="json"),
-            "timestamp": job.updated_at,
-        }
-        yield f"event: status\ndata: {json.dumps(initial, ensure_ascii=False)}\n\n"
         try:
+            job = job_manager.get_job(job_id)
+            initial = {
+                "event": "status",
+                "job_id": job.job_id,
+                "stage": job.stage,
+                "status": job.status,
+                "progress": job.progress.model_dump(mode="json"),
+                "timestamp": job.updated_at,
+            }
+            yield f"event: status\ndata: {json.dumps(initial, ensure_ascii=False)}\n\n"
+            if job.status in TERMINAL_STATUSES:
+                return
             while True:
                 event = await queue.get()
                 yield (

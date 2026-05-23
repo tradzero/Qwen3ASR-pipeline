@@ -3,6 +3,7 @@ import gc
 import os
 import platform
 import time
+from collections.abc import Callable
 from typing import Any
 
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
@@ -17,7 +18,24 @@ from config import DEFAULT_ASR_MODEL, Config
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_LOCAL_MODEL_DIR = PROJECT_ROOT / "models"
+USER_LOCAL_MODEL_DIR = Path.home() / "models"
 VALID_BACKENDS = {"auto", "vllm", "transformers"}
+
+
+class TranscriptionCanceled(Exception):
+    pass
+
+
+ProgressCallback = Callable[[dict[str, Any]], None]
+
+
+def _is_cancel_requested(cancel_token: object | None) -> bool:
+    return bool(cancel_token is not None and getattr(cancel_token, "is_canceled", False))
+
+
+def _raise_if_canceled(cancel_token: object | None) -> None:
+    if _is_cancel_requested(cancel_token):
+        raise TranscriptionCanceled("ASR 推理已取消")
 
 
 def _torch_dtype(dtype: str) -> torch.dtype:
@@ -56,9 +74,11 @@ def resolve_model_source(model: str | None) -> str | None:
     if model.count("/") != 1:
         return model
 
-    local_candidate = DEFAULT_LOCAL_MODEL_DIR / model.rsplit("/", 1)[-1]
-    if local_candidate.is_dir():
-        return str(local_candidate)
+    model_dir_name = model.rsplit("/", 1)[-1]
+    for model_root in (DEFAULT_LOCAL_MODEL_DIR, USER_LOCAL_MODEL_DIR):
+        local_candidate = model_root / model_dir_name
+        if local_candidate.is_dir():
+            return str(local_candidate)
 
     return model
 
@@ -133,6 +153,8 @@ def transcribe_segments(
     language: str | None = None,
     batch_size: int = 0,
     return_time_stamps: bool = False,
+    progress_callback: ProgressCallback | None = None,
+    cancel_token: object | None = None,
 ) -> tuple[list[str], list[list[Any] | None]]:
     """批量转录所有切片，返回有序文本和模型时间戳。"""
     audio_inputs = [(seg, WAV_SAMPLE_RATE) for _, _, seg in segments]
@@ -171,6 +193,30 @@ def transcribe_segments(
             f"eta={format_duration(eta)} ..."
         )
 
+    def emit_progress(done: int, total_count: int, current_batch_size: int, message: str) -> None:
+        if progress_callback is None:
+            return
+        percent = done / total_count * 100 if total_count else 100.0
+        elapsed = time.time() - t_start
+        eta = None
+        if done > 0 and done < total_count:
+            eta = elapsed / done * (total_count - done)
+        progress_callback(
+            {
+                "event": "progress",
+                "stage": "transcribing",
+                "message": message,
+                "progress": {
+                    "done": done,
+                    "total": total_count,
+                    "percent": percent,
+                    "elapsed_seconds": elapsed,
+                    "eta_seconds": eta,
+                    "batch_size": current_batch_size,
+                },
+            }
+        )
+
     def cuda_peak_text() -> str:
         if not torch.cuda.is_available():
             return ""
@@ -178,8 +224,10 @@ def transcribe_segments(
         reserved_gb = torch.cuda.memory_reserved() / 1024**3
         return f", CUDA peak={peak_gb:.1f}GiB, reserved={reserved_gb:.1f}GiB"
 
-    def run_transcribe(batch_audio, progress: str):
+    def run_transcribe(batch_audio, progress: str, started_done: int, completed_done: int, total_count: int):
+        _raise_if_canceled(cancel_token)
         print(progress)
+        emit_progress(started_done, total_count, len(batch_audio), progress)
         if torch.cuda.is_available():
             torch.cuda.reset_peak_memory_stats()
         try:
@@ -188,10 +236,14 @@ def transcribe_segments(
                 language=language,
                 return_time_stamps=return_time_stamps,
             )
-            print(f"[ASR] batch 完成{cuda_peak_text()}")
+            message = f"[ASR] batch 完成{cuda_peak_text()}"
+            print(message)
+            emit_progress(completed_done, total_count, len(batch_audio), message)
             return results
         except torch.cuda.OutOfMemoryError:
-            print(f"[ASR] batch OOM{cuda_peak_text()}")
+            message = f"[ASR] batch OOM{cuda_peak_text()}"
+            print(message)
+            emit_progress(started_done, total_count, len(batch_audio), message)
             clear_cuda_cache()
             if len(batch_audio) == 1:
                 raise RuntimeError(
@@ -201,6 +253,7 @@ def transcribe_segments(
             print("[ASR] 当前 batch 显存不足，自动降到单段重试...")
             retry_results = []
             for retry_index, single_audio in enumerate(batch_audio, start=1):
+                _raise_if_canceled(cancel_token)
                 clear_cuda_cache()
                 if torch.cuda.is_available():
                     torch.cuda.reset_peak_memory_stats()
@@ -211,23 +264,26 @@ def transcribe_segments(
                         return_time_stamps=return_time_stamps,
                     )
                 )
-                print(f"[ASR] 单段重试完成 [{retry_index}/{len(batch_audio)}]{cuda_peak_text()}")
+                message = f"[ASR] 单段重试完成 [{retry_index}/{len(batch_audio)}]{cuda_peak_text()}"
+                print(message)
+                emit_progress(min(started_done + retry_index, total_count), total_count, 1, message)
             return retry_results
         finally:
             clear_cuda_cache()
 
     # 少量切片或未指定 batch_size 时一次性推理
     if batch_size <= 0 or total <= batch_size:
-        results = run_transcribe(audio_inputs, progress_text(total, total, len(audio_inputs)))
+        results = run_transcribe(audio_inputs, progress_text(total, total, len(audio_inputs)), 0, total, total)
         return collect_outputs(results)
 
     # 分批推理并输出进度
     all_texts: list[str] = []
     all_time_stamps: list[list[Any] | None] = []
     for i in range(0, total, batch_size):
+        _raise_if_canceled(cancel_token)
         batch = audio_inputs[i : i + batch_size]
         end = min(i + batch_size, total)
-        results = run_transcribe(batch, progress_text(end, total, len(batch)))
+        results = run_transcribe(batch, progress_text(end, total, len(batch)), i, end, total)
         texts, time_stamps = collect_outputs(results)
         all_texts.extend(texts)
         all_time_stamps.extend(time_stamps)

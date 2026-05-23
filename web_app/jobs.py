@@ -334,4 +334,13 @@ class JobManager:
             try:
                 queue.put_nowait(payload)
             except asyncio.QueueFull:
-                pass
+                if job.status not in TERMINAL_STATUSES:
+                    continue
+                try:
+                    queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
+                try:
+                    queue.put_nowait(payload)
+                except asyncio.QueueFull:
+                    pass
