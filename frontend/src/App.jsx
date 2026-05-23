@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import { API_BASE_URL, getHealth } from "./api/client.js";
 import { AsrPage } from "./pages/AsrPage.jsx";
 import { HistoryPage } from "./pages/HistoryPage.jsx";
 import { LadaPage } from "./pages/LadaPage.jsx";
@@ -14,7 +15,31 @@ const navItems = [
 
 export function App() {
   const [activeTab, setActiveTab] = useState(navItems[0].id);
+  const [serviceStatus, setServiceStatus] = useState("checking");
   const ActivePage = navItems.find((item) => item.id === activeTab)?.component ?? AsrPage;
+
+  useEffect(() => {
+    let alive = true;
+    const check = () => {
+      getHealth()
+        .then(() => {
+          if (alive) {
+            setServiceStatus("online");
+          }
+        })
+        .catch(() => {
+          if (alive) {
+            setServiceStatus("offline");
+          }
+        });
+    };
+    check();
+    const intervalId = window.setInterval(check, 10000);
+    return () => {
+      alive = false;
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   return (
     <main className="console-shell">
@@ -23,7 +48,7 @@ export function App() {
           <p className="eyebrow">Local task console</p>
           <h1>Qwen3-ASR 控制台</h1>
         </div>
-        <div className="service-pill">127.0.0.1:7860</div>
+        <div className={`service-pill ${serviceStatus}`}>{API_BASE_URL.replace(/^https?:\/\//, "")} · {serviceStatus}</div>
       </header>
 
       <nav className="tabbar" aria-label="任务类型">

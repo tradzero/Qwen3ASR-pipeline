@@ -218,6 +218,8 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 
 ## 阶段 2：ASR Web 适配
 
+状态：已完成，提交 `9eea16b feat: connect asr web runner`。CLI 与 Web ASR 已使用 `testvoice/` 短音频完成真实回归。
+
 ### 目标
 
 把现有 CLI ASR 管线接入任务运行时，同时保留 CLI 可用。
@@ -270,6 +272,8 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 - 任务取消在 VAD 前后或 batch 间生效。
 
 ## 阶段 3：React 前端基础体验
+
+状态：已实现基础体验，待审查和提交。已接入上传、路径输入、ASR 参数表单、任务详情、实时事件、轮询回退、取消、产物下载和历史列表。
 
 ### 目标
 

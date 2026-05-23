@@ -62,6 +62,12 @@ class MockJobRequest(BaseModel):
     steps: int = Field(default=6, ge=1, le=200)
 
 
+class UploadResponse(BaseModel):
+    path: str
+    filename: str
+    size_bytes: int
+
+
 _ASR_DEFAULTS = Config()
 
 

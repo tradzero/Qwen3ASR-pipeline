@@ -1,9 +1,12 @@
 import asyncio
 import json
+import re
 from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
@@ -17,7 +20,14 @@ from web_app.jobs import (
     TERMINAL_STATUSES,
 )
 from web_app.runners.asr import run_asr_web_job
-from web_app.schemas import AsrJobRequest, CancelJobResponse, JobInput, JobListResponse, MockJobRequest
+from web_app.schemas import (
+    AsrJobRequest,
+    CancelJobResponse,
+    JobInput,
+    JobListResponse,
+    MockJobRequest,
+    UploadResponse,
+)
 from web_app.settings import get_runtime_paths, get_web_settings
 
 
@@ -46,6 +56,14 @@ def _is_remote_input(input_file: str) -> bool:
     return lowered.startswith("http://") or lowered.startswith("https://")
 
 
+def _safe_upload_name(filename: str | None) -> str:
+    original = Path(filename or "upload.bin").name
+    stem = Path(original).stem or "upload"
+    suffix = Path(original).suffix[:16]
+    safe_stem = re.sub(r"[^A-Za-z0-9._@-]+", "_", stem).strip("._ ") or "upload"
+    return f"{safe_stem[:80]}-{uuid4().hex[:8]}{suffix}"
+
+
 @app.get("/api/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -58,6 +76,36 @@ async def config_defaults() -> dict:
         "web": asdict(settings),
         "runtime_paths": {name: str(path) for name, path in get_runtime_paths(settings).items()},
     }
+
+
+@app.post("/api/uploads", response_model=UploadResponse)
+async def upload_file(file: UploadFile = File(...)) -> UploadResponse:
+    upload_dir = get_runtime_paths(settings)["upload_dir"]
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    date_dir = upload_dir / datetime.now(UTC).strftime("%Y%m%d")
+    date_dir.mkdir(parents=True, exist_ok=True)
+    output_path = date_dir / _safe_upload_name(file.filename)
+    max_bytes = settings.max_upload_size_mb * 1024 * 1024
+    size_bytes = 0
+
+    try:
+        with open(output_path, "wb") as output:
+            while chunk := await file.read(1024 * 1024):
+                size_bytes += len(chunk)
+                if size_bytes > max_bytes:
+                    output.close()
+                    output_path.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail="Uploaded file exceeds WEB_MAX_UPLOAD_SIZE_MB")
+                output.write(chunk)
+    except HTTPException:
+        raise
+    except OSError as exc:
+        output_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=507, detail=f"Failed to save upload: {exc}") from exc
+    finally:
+        await file.close()
+
+    return UploadResponse(path=str(output_path.resolve()), filename=Path(file.filename or output_path.name).name, size_bytes=size_bytes)
 
 
 @app.get("/api/jobs", response_model=JobListResponse)
