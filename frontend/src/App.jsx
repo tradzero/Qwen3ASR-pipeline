@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { API_BASE_URL, getHealth, getJob, getWarmupStatus, listJobs, subscribeJobEvents, TERMINAL_STATUSES } from "./api/client.js";
+import { API_BASE_URL, createTranslateJob, getHealth, getJob, getWarmupStatus, listJobs, subscribeJobEvents, TERMINAL_STATUSES } from "./api/client.js";
 import { Panel } from "./components/Panel.jsx";
 import { AsrPage } from "./pages/AsrPage.jsx";
 import { HistoryPage } from "./pages/HistoryPage.jsx";
@@ -58,6 +58,16 @@ export function App() {
       }
       return { ...current, [type]: job };
     });
+  };
+
+  const translateFromArtifact = async (sourceJob, artifact) => {
+    const job = await createTranslateJob({
+      source_job_id: sourceJob.job_id,
+      artifact_name: artifact.name,
+    });
+    setActiveJob(job);
+    setActiveTab("translate");
+    setJobError("");
   };
 
   useEffect(() => {
@@ -207,6 +217,7 @@ export function App() {
   const pageProps = {
     activeJob,
     setActiveJob,
+    onTranslateArtifact: translateFromArtifact,
     streamMode,
     jobError,
     setJobError,

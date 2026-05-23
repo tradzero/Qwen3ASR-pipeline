@@ -2,6 +2,15 @@ import { useLayoutEffect, useRef } from "react";
 
 import { artifactUrl, TERMINAL_STATUSES } from "../api/client.js";
 
+function subtitleArtifact(job) {
+  const artifacts = job?.artifacts ?? [];
+  return (
+    artifacts.find((artifact) => artifact.kind === "srt" && artifact.name === "subtitle")
+    ?? artifacts.find((artifact) => artifact.kind === "srt")
+    ?? null
+  );
+}
+
 function formatPercent(value) {
   return `${Math.round(Number(value || 0))}%`;
 }
@@ -16,7 +25,7 @@ function formatSeconds(value) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-export function JobDetail({ job, onCancel, busy = false }) {
+export function JobDetail({ job, onCancel, onTranslateArtifact, busy = false }) {
   const logBoxRef = useRef(null);
   const shouldStickToBottomRef = useRef(true);
   const lastScrollTopRef = useRef(0);
@@ -48,6 +57,8 @@ export function JobDetail({ job, onCancel, busy = false }) {
 
   const progress = job.progress ?? {};
   const canCancel = Boolean(onCancel) && !TERMINAL_STATUSES.has(job.status);
+  const translateArtifact = subtitleArtifact(job);
+  const canTranslate = Boolean(onTranslateArtifact) && job.type === "asr" && job.status === "succeeded" && Boolean(translateArtifact);
   const onLogScroll = () => {
     const logBox = logBoxRef.current;
     if (!logBox) {
@@ -71,10 +82,19 @@ export function JobDetail({ job, onCancel, busy = false }) {
           <strong>{job.status}</strong>
           <span className="job-stage">{job.stage}</span>
         </div>
-        {canCancel ? (
-          <button className="ghost-button danger" disabled={busy} onClick={onCancel} type="button">
-            取消
-          </button>
+        {canTranslate || canCancel ? (
+          <div className="job-actions">
+            {canTranslate ? (
+              <button className="ghost-button accent" disabled={busy} onClick={() => onTranslateArtifact(job, translateArtifact)} type="button">
+                转交翻译
+              </button>
+            ) : null}
+            {canCancel ? (
+              <button className="ghost-button danger" disabled={busy} onClick={onCancel} type="button">
+                取消
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
 

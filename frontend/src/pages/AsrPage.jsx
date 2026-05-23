@@ -42,7 +42,7 @@ function numberValue(value) {
   return Number(value);
 }
 
-export function AsrPage({ activeJob, setActiveJob, streamMode, jobError, setJobError }) {
+export function AsrPage({ activeJob, setActiveJob, onTranslateArtifact, streamMode, jobError, setJobError }) {
   const [form, setForm] = useState(initialForm);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -123,6 +123,22 @@ export function AsrPage({ activeJob, setActiveJob, streamMode, jobError, setJobE
     }
   };
 
+  const requestTranslate = async (job, artifact) => {
+    if (!onTranslateArtifact) {
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    setJobError?.("");
+    try {
+      await onTranslateArtifact(job, artifact);
+    } catch (nextError) {
+      setError(nextError.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="page-grid">
       <Panel title="ASR 任务">
@@ -183,7 +199,7 @@ export function AsrPage({ activeJob, setActiveJob, streamMode, jobError, setJobE
       <Panel title="任务进度">
         <div className="stream-line">{streamMode === "live" ? "SSE live" : streamMode === "polling" ? "polling" : "idle"}</div>
         {jobError ? <div className="error-box">{jobError}</div> : null}
-        <JobDetail job={activeJob} busy={submitting} onCancel={requestCancel} />
+        <JobDetail job={activeJob} busy={submitting} onCancel={requestCancel} onTranslateArtifact={requestTranslate} />
       </Panel>
     </div>
   );

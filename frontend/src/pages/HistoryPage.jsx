@@ -4,7 +4,7 @@ import { cancelJob, getJob, listJobs, TERMINAL_STATUSES } from "../api/client.js
 import { JobDetail } from "../components/JobDetail.jsx";
 import { Panel } from "../components/Panel.jsx";
 
-export function HistoryPage() {
+export function HistoryPage({ onTranslateArtifact }) {
   const [jobs, setJobs] = useState([]);
   const [selectedJob, setSelectedJob] = useState(null);
   const [error, setError] = useState("");
@@ -70,6 +70,21 @@ export function HistoryPage() {
     }
   };
 
+  const requestTranslate = async (job, artifact) => {
+    if (!onTranslateArtifact) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await onTranslateArtifact(job, artifact);
+    } catch (nextError) {
+      setError(nextError.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="page-grid history-grid">
       <Panel title="任务历史">
@@ -98,7 +113,7 @@ export function HistoryPage() {
         </div>
       </Panel>
       <Panel title="任务详情">
-        <JobDetail job={selectedJob} busy={busy} onCancel={requestCancel} />
+        <JobDetail job={selectedJob} busy={busy} onCancel={requestCancel} onTranslateArtifact={requestTranslate} />
       </Panel>
     </div>
   );
