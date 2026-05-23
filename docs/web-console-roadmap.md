@@ -113,7 +113,9 @@ qwen3asr-pipeline/
 
 产物下载接口只能根据任务历史中登记过的 artifact 返回文件，不能把 URL 中的 `artifact_name` 拼成任意本机路径。输入本机路径只用于创建任务，不提供“任意路径下载”能力。
 
-## 阶段 0：文档、依赖和配置基线
+## 阶段 0：文档、依赖和配置基线（已完成）
+
+状态：已完成，提交 `1ea93e0 feat: add web console phase 0 baseline`。
 
 ### 目标
 
@@ -161,7 +163,9 @@ npm --prefix frontend run build
 - README 中有 Web 模式依赖和环境变量说明。
 - 运行 `python main.py ...` 的参数和默认行为不变。
 
-## 阶段 1：后端任务运行时
+## 阶段 1：后端任务运行时（已完成）
+
+状态：已完成。已实现 FastAPI app、JobManager、SSE 事件流、mock job、取消请求、历史 JSON 摘要、日志文件和 artifact 登记访问。
 
 ### 目标
 

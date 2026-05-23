@@ -42,6 +42,25 @@ Web 运行配置使用单独的 `WebSettings`，不会改变 CLI 的 ASR `Config
 | `DEEPSEEK_API_KEY_ENV` | `DEEPSEEK_API_KEY` | DeepSeek API key 所在环境变量名 |
 | `DEEPSEEK_MODEL` | `deepseek-v4-flash` | DeepSeek 翻译模型 |
 
+### 阶段 1 后端运行时
+
+阶段 1 已建立 FastAPI 后端骨架和通用任务运行时，可用 mock job 验证任务状态、SSE 事件、取消和 artifact 访问。
+
+```powershell
+uvicorn web_app.main:app --host 127.0.0.1 --port 7860
+```
+
+当前可用接口：
+
+- `GET /api/health`
+- `GET /api/config/defaults`
+- `GET /api/jobs`
+- `GET /api/jobs/{job_id}`
+- `POST /api/jobs/{job_id}/cancel`
+- `GET /api/jobs/{job_id}/events`
+- `GET /api/artifacts/{job_id}/{artifact_name}`
+- `POST /api/jobs/mock`
+
 ## 前置条件
 
 - Python 3.12+
