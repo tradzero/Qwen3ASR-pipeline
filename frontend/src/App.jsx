@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { API_BASE_URL, getHealth, getJob, getWarmupStatus, subscribeJobEvents, TERMINAL_STATUSES } from "./api/client.js";
+import { API_BASE_URL, getHealth, getJob, getWarmupStatus, listJobs, subscribeJobEvents, TERMINAL_STATUSES } from "./api/client.js";
 import { Panel } from "./components/Panel.jsx";
 import { AsrPage } from "./pages/AsrPage.jsx";
 import { HistoryPage } from "./pages/HistoryPage.jsx";
@@ -13,16 +13,52 @@ const navItems = [
   { id: "translate", label: "翻译", component: TranslatePage },
   { id: "history", label: "历史", component: HistoryPage },
 ];
+const taskTabs = new Set(["asr", "lada", "translate"]);
+
+function initialActiveTab() {
+  try {
+    const storedTab = window.localStorage.getItem("qwen3-asr-active-tab");
+    return navItems.some((item) => item.id === storedTab) ? storedTab : navItems[0].id;
+  } catch {
+    return navItems[0].id;
+  }
+}
+
+function storeActiveTab(activeTab) {
+  try {
+    window.localStorage.setItem("qwen3-asr-active-tab", activeTab);
+  } catch {
+    return false;
+  }
+  return true;
+}
 
 export function App() {
-  const [activeTab, setActiveTab] = useState(navItems[0].id);
+  const [activeTab, setActiveTab] = useState(initialActiveTab);
   const [serviceStatus, setServiceStatus] = useState("checking");
   const [warmup, setWarmup] = useState({ status: "checking", stage: "backend", message: "等待后端响应..." });
-  const [activeJob, setActiveJob] = useState(null);
+  const [activeJobsByType, setActiveJobsByType] = useState({});
   const [streamMode, setStreamMode] = useState("idle");
   const [jobError, setJobError] = useState("");
+  const [jobsRestored, setJobsRestored] = useState(false);
   const ActivePage = navItems.find((item) => item.id === activeTab)?.component ?? AsrPage;
+  const activeJob = activeJobsByType[activeTab] ?? null;
   const warmupBlocking = warmup.status === "checking" || warmup.status === "pending" || warmup.status === "running";
+
+  const setActiveJob = (job) => {
+    setActiveJobsByType((current) => {
+      const type = job?.type && taskTabs.has(job.type) ? job.type : activeTab;
+      if (!taskTabs.has(type)) {
+        return current;
+      }
+      if (!job) {
+        const next = { ...current };
+        delete next[type];
+        return next;
+      }
+      return { ...current, [type]: job };
+    });
+  };
 
   useEffect(() => {
     let alive = true;
@@ -46,6 +82,46 @@ export function App() {
       window.clearInterval(intervalId);
     };
   }, []);
+
+  useEffect(() => {
+    storeActiveTab(activeTab);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (jobsRestored || serviceStatus !== "online") {
+      return undefined;
+    }
+
+    let alive = true;
+    listJobs()
+      .then((response) => {
+        if (!alive) {
+          return;
+        }
+        setActiveJobsByType((current) => {
+          const next = { ...current };
+          for (const job of response.jobs) {
+            if (!taskTabs.has(job.type) || TERMINAL_STATUSES.has(job.status)) {
+              continue;
+            }
+            const currentJob = next[job.type];
+            if (!currentJob || TERMINAL_STATUSES.has(currentJob.status)) {
+              next[job.type] = job;
+            }
+          }
+          return next;
+        });
+        setJobsRestored(true);
+      })
+      .catch((error) => {
+        if (alive) {
+          setJobError(error.message);
+        }
+      });
+    return () => {
+      alive = false;
+    };
+  }, [jobsRestored, serviceStatus]);
 
   useEffect(() => {
     let alive = true;
@@ -76,7 +152,12 @@ export function App() {
 
   useEffect(() => {
     const jobId = activeJob?.job_id;
-    if (!jobId || TERMINAL_STATUSES.has(activeJob.status)) {
+    if (!jobId) {
+      setStreamMode("idle");
+      return undefined;
+    }
+    if (TERMINAL_STATUSES.has(activeJob.status)) {
+      setStreamMode("closed");
       return undefined;
     }
 
@@ -121,7 +202,7 @@ export function App() {
       closeEvents?.();
       window.clearInterval(intervalId);
     };
-  }, [activeJob?.job_id]);
+  }, [activeJob?.job_id, activeJob?.status]);
 
   const pageProps = {
     activeJob,

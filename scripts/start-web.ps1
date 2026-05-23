@@ -4,7 +4,9 @@ param(
     [int]$FrontendPort = 5173,
     [string]$CondaEnv = "qwen3-asr",
     [string]$CondaHook = "",
-    [string]$Python = "python"
+    [string]$Python = "python",
+    [ValidateSet("Idle", "BelowNormal", "Normal", "AboveNormal", "High")]
+    [string]$BackendPriority = "AboveNormal"
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,6 +21,7 @@ Write-Host "Starting Qwen3-ASR Web Console" -ForegroundColor Cyan
 Write-Host "Backend:  $BackendUrl"
 Write-Host "Frontend: http://127.0.0.1:$FrontendPort"
 Write-Host "Backend conda env: $CondaEnv"
+Write-Host "Backend process priority: $BackendPriority"
 Write-Host "Project .env is loaded by the backend process; secrets are not printed by this script."
 
 $backendCommand = @"
@@ -43,7 +46,8 @@ if ('$CondaEnv') {
     conda activate '$CondaEnv'
 }
 `$env:WEB_CORS_ORIGINS = 'http://127.0.0.1:$FrontendPort,http://localhost:$FrontendPort'
-& '$Python' -m uvicorn web_app.main:app --host '$BackendHost' --port $BackendPort
+`$env:WEB_PROCESS_PRIORITY = '$BackendPriority'
+& '$Python' -m uvicorn web_app.main:app --host '$BackendHost' --port $BackendPort --no-access-log --log-level warning
 "@
 
 $frontendCommand = @"

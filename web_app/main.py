@@ -19,6 +19,7 @@ from web_app.jobs import (
     JobNotFoundError,
     TERMINAL_STATUSES,
 )
+from web_app.process_priority import set_process_priority
 from web_app.runners.asr import run_asr_web_job
 from web_app.runners.lada import run_lada_web_job
 from web_app.runners.translate import run_translate_web_job
@@ -38,6 +39,7 @@ from web_app.warmup import WarmupManager
 
 
 settings = get_web_settings()
+set_process_priority(settings.process_priority)
 job_manager = JobManager(settings)
 warmup_manager = WarmupManager(settings)
 

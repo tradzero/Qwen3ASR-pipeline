@@ -98,6 +98,7 @@ def get_web_settings() -> WebSettings:
         host=_env_str("WEB_HOST", defaults.host),
         port=_env_int("WEB_PORT", defaults.port),
         cors_origins=_env_str("WEB_CORS_ORIGINS", defaults.cors_origins),
+        process_priority=_env_str("WEB_PROCESS_PRIORITY", defaults.process_priority),
         upload_dir=_env_str("WEB_UPLOAD_DIR", defaults.upload_dir),
         job_dir=_env_str("WEB_JOB_DIR", defaults.job_dir),
         artifact_dir=_env_str("WEB_ARTIFACT_DIR", defaults.artifact_dir),

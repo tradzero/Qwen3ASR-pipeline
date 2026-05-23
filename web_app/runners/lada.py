@@ -9,6 +9,7 @@ from pathlib import Path
 from config import WebSettings
 from web_app.jobs import CancelToken, JobReporter
 from web_app.lada_paths import prepare_lada_output_dir
+from web_app.process_priority import set_process_priority
 from web_app.schemas import LadaJobRequest
 
 
@@ -137,6 +138,7 @@ async def run_lada_web_job(request: LadaJobRequest, settings: WebSettings, repor
         cwd=str(cli_path.parent),
         env=env,
     )
+    set_process_priority(settings.process_priority, process.pid)
     await reporter.stage("lada_running", "LADA 进程已启动。")
 
     stdout_task = asyncio.create_task(_read_stream(process.stdout, reporter, started, "stdout"))

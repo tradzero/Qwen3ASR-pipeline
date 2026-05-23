@@ -61,6 +61,7 @@ class WebSettings:
     host: str = "127.0.0.1"
     port: int = 7860
     cors_origins: str = "http://127.0.0.1:5173,http://localhost:5173"
+    process_priority: str = "AboveNormal"
 
     # 运行时目录
     upload_dir: str = "./uploads"

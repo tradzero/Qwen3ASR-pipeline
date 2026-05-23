@@ -60,6 +60,7 @@ Web 运行配置使用单独的 `WebSettings`，不会改变 CLI 的 ASR `Config
 | `WEB_WARMUP_ON_STARTUP` | `true` | 后端启动后预热 VAD/ASR，前端等待预热完成后显示任务页 |
 | `WEB_WARMUP_VAD` | `true` | 启动时加载 Silero VAD |
 | `WEB_WARMUP_ASR` | `true` | 启动时加载 ASR/ForcedAligner，并在任务中复用模型 |
+| `WEB_PROCESS_PRIORITY` | `AboveNormal` | Windows 下后端 Python 进程和 LADA 子进程优先级；可设 `Idle` / `BelowNormal` / `Normal` / `AboveNormal` / `High` |
 | `WEB_UPLOAD_DIR` | `./uploads` | 可选浏览器上传接口的保存目录；主界面默认使用本机/UNC 路径 |
 | `WEB_JOB_DIR` | `./jobs` | 任务历史和运行态目录 |
 | `WEB_ARTIFACT_DIR` | `./output/web` | Web 任务通用产物目录 |
