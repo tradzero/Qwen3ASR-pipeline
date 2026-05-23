@@ -12,6 +12,7 @@ DEEPSEEK_V4_CONTEXT_TOKENS = 1_000_000
 DEEPSEEK_V4_MAX_OUTPUT_TOKENS = 384_000
 DEFAULT_DEEPSEEK_MAX_TOKENS = DEEPSEEK_V4_MAX_OUTPUT_TOKENS
 DEFAULT_DEEPSEEK_CHUNK_CHARS = 200_000
+DEFAULT_DEEPSEEK_CONTEXT_CHARS = 12_000
 DEFAULT_TRANSLATION_PROMPT_TEMPLATE = """你是专业字幕翻译助手。请将下面 SRT 字幕正文翻译为{target_language}。
 
 要求：
@@ -102,5 +103,6 @@ class WebSettings:
     deepseek_max_tokens: int = DEFAULT_DEEPSEEK_MAX_TOKENS
     deepseek_target_language: str = "简体中文"
     deepseek_chunk_chars: int = DEFAULT_DEEPSEEK_CHUNK_CHARS
+    deepseek_context_chars: int = DEFAULT_DEEPSEEK_CONTEXT_CHARS
     deepseek_max_srt_size_mb: int = 20
     deepseek_prompt_template: str = DEFAULT_TRANSLATION_PROMPT_TEMPLATE

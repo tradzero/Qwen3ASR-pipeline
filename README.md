@@ -82,6 +82,7 @@ Web 运行配置使用单独的 `WebSettings`，不会改变 CLI 的 ASR `Config
 | `DEEPSEEK_REASONING_EFFORT` | `high` | DeepSeek `reasoning_effort`，支持 `high` / `max` |
 | `DEEPSEEK_MAX_TOKENS` | `384000` | DeepSeek v4 单次 completion 输出上限；校验上限为 384K tokens |
 | `DEEPSEEK_CHUNK_CHARS` | `200000` | SRT 翻译分块字符预算；校验上限按 v4 1M context 设置 |
+| `DEEPSEEK_CONTEXT_CHARS` | `12000` | 多分块翻译时携带的上一批字幕/译文参考字符预算；不回传 `reasoning_content` |
 | `DEEPSEEK_MAX_SRT_SIZE_MB` | `20` | 翻译任务允许读取的 SRT 文件或粘贴文本大小上限 |
 
 ### 阶段 1 后端运行时

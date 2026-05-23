@@ -2,7 +2,7 @@ import unittest
 
 from pydantic import ValidationError
 
-from web_app.runners.translate import _build_translation_payload, _translation_output_stem
+from web_app.runners.translate import SubtitleBlock, _build_context_messages, _build_translation_payload, _translation_output_stem
 from web_app.schemas import TranslateJobRequest
 
 
@@ -28,6 +28,35 @@ class DeepSeekTranslateTests(unittest.TestCase):
         self.assertEqual(payload["reasoning_effort"], "max")
         self.assertEqual(payload["max_tokens"], 384_000)
         self.assertFalse({"temperature", "top_p", "presence_penalty", "frequency_penalty"} & payload.keys())
+
+    def test_translation_payload_carries_bounded_prior_context_messages(self):
+        context_messages = [{"role": "user", "content": "previous source"}, {"role": "assistant", "content": "previous translation"}]
+
+        payload = _build_translation_payload(request=self.request(), prompt="current", context_messages=context_messages)
+
+        self.assertEqual(payload["messages"], [*context_messages, {"role": "user", "content": "current"}])
+        self.assertNotIn("reasoning_content", payload["messages"][1])
+
+    def test_context_messages_use_recent_translated_subtitles_without_reasoning(self):
+        blocks = [
+            SubtitleBlock(number="1", timing="00:00:00,000 --> 00:00:01,000", text="hello"),
+            SubtitleBlock(number="2", timing="00:00:01,000 --> 00:00:02,000", text="world"),
+        ]
+
+        messages = _build_context_messages(blocks, {0: "你好", 1: "世界"}, max_chars=200)
+
+        self.assertEqual([message["role"] for message in messages], ["user", "assistant"])
+        self.assertIn("hello", messages[0]["content"])
+        self.assertIn("世界", messages[0]["content"])
+        self.assertNotIn("reasoning_content", messages[0])
+
+    def test_context_messages_clip_oversized_single_entry(self):
+        blocks = [SubtitleBlock(number="1", timing="00:00:00,000 --> 00:00:01,000", text="a" * 200)]
+
+        messages = _build_context_messages(blocks, {0: "b" * 200}, max_chars=80)
+
+        context_prefix = "以下是已完成的相邻字幕翻译，仅用于保持术语、人名、称谓和语气一致；不要重新输出这些段落。\n\n"
+        self.assertLessEqual(len(messages[0]["content"]) - len(context_prefix), 80)
 
     def test_max_tokens_is_capped_to_deepseek_v4_output_limit(self):
         with self.assertRaises(ValidationError):

@@ -22,6 +22,7 @@ class SubtitleBlock:
 
 
 _SEGMENT_RE = re.compile(r"<SEG\s+(\d+)>\s*(.*?)\s*</SEG\s+\1>", re.DOTALL | re.IGNORECASE)
+Message = dict[str, str]
 
 
 def _normalize_reasoning_effort(value: str) -> str:
@@ -110,11 +111,12 @@ def _extract_content(payload: dict) -> str:
     return content
 
 
-def _build_translation_payload(*, request: TranslateJobRequest, prompt: str) -> dict:
+def _build_translation_payload(*, request: TranslateJobRequest, prompt: str, context_messages: list[Message] | None = None) -> dict:
     reasoning_effort = _normalize_reasoning_effort(request.reasoning_effort)
+    messages = [*(context_messages or []), {"role": "user", "content": prompt}]
     return {
         "model": request.model,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": messages,
         "thinking": {"type": "enabled"},
         "reasoning_effort": reasoning_effort,
         "max_tokens": request.max_tokens,
@@ -131,6 +133,48 @@ def _translation_output_stem(request: TranslateJobRequest) -> str:
     return "translated"
 
 
+def _clip_context_entry(entry: str, max_chars: int) -> str:
+    if len(entry) <= max_chars:
+        return entry
+    marker = "\n..."
+    if max_chars <= len(marker):
+        return entry[:max_chars]
+    return entry[: max_chars - len(marker)] + marker
+
+
+def _build_context_messages(blocks: list[SubtitleBlock], translations: dict[int, str], max_chars: int) -> list[Message]:
+    if max_chars <= 0 or not translations:
+        return []
+
+    entries: list[str] = []
+    used_chars = 0
+    for index in sorted(translations.keys(), reverse=True):
+        block = blocks[index]
+        entry = f"<SEG {index}>\n原文：\n{block.text}\n译文：\n{translations[index]}\n</SEG {index}>"
+        entry_chars = len(entry)
+        if entries and used_chars + entry_chars > max_chars:
+            break
+        if not entries and entry_chars > max_chars:
+            entry = _clip_context_entry(entry, max_chars)
+            entry_chars = len(entry)
+        entries.append(entry)
+        used_chars += entry_chars
+        if used_chars >= max_chars:
+            break
+
+    if not entries:
+        return []
+
+    context = "\n\n".join(reversed(entries))
+    return [
+        {
+            "role": "user",
+            "content": "以下是已完成的相邻字幕翻译，仅用于保持术语、人名、称谓和语气一致；不要重新输出这些段落。\n\n" + context,
+        },
+        {"role": "assistant", "content": "收到。后续只输出当前请求中的 <SEG> 翻译。"},
+    ]
+
+
 async def _request_translation(
     client: httpx.AsyncClient,
     *,
@@ -138,8 +182,9 @@ async def _request_translation(
     api_key: str,
     request: TranslateJobRequest,
     prompt: str,
+    context_messages: list[Message] | None = None,
 ) -> str:
-    payload = _build_translation_payload(request=request, prompt=prompt)
+    payload = _build_translation_payload(request=request, prompt=prompt, context_messages=context_messages)
     response = await client.post(
         url,
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "Accept": "application/json"},
@@ -201,9 +246,17 @@ async def run_translate_web_job(request: TranslateJobRequest, settings: WebSetti
 
             segment_text = _format_segments(chunk)
             prompt = _render_prompt(prompt_template, target_language=request.target_language, text=segment_text)
+            context_messages = _build_context_messages(blocks, translations, settings.deepseek_context_chars)
             expected_indexes = [index for index, _ in chunk]
             try:
-                content = await _request_translation(client, url=url, api_key=api_key, request=request, prompt=prompt)
+                content = await _request_translation(
+                    client,
+                    url=url,
+                    api_key=api_key,
+                    request=request,
+                    prompt=prompt,
+                    context_messages=context_messages,
+                )
                 translations.update(_parse_translated_segments(content, expected_indexes))
             except Exception:
                 await _write_partial(reporter, partial_path, blocks, translations, register=True)

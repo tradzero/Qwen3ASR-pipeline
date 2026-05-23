@@ -403,6 +403,7 @@ npm --prefix frontend run build
 - 新增 translate runner，使用 `httpx` 调用 `POST https://api.deepseek.com/chat/completions`。
 - 支持输入来源：ASR `subtitle` artifact、SRT 文件路径、用户粘贴 SRT。
 - 按 SRT block 和字符预算分块，只翻译字幕正文，重建时保留序号和时间轴。
+- 多分块翻译时携带有界的上一批字幕/译文参考；不回传 `reasoning_content`。
 - 请求完成后合并为 `<源文件名>.srt`；失败或取消时保留已完成分块的 `<源文件名>.partial.srt`。
 - 前端新增翻译面板：选择历史 ASR 字幕、目标语言、模型、思考强度、prompt 预览/编辑、运行翻译。
 - 无 API key 时给出清晰错误，不发起请求。
