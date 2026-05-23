@@ -25,6 +25,7 @@ from web_app.runners.translate import run_translate_web_job
 from web_app.schemas import (
     AsrJobRequest,
     CancelJobResponse,
+    JobArtifact,
     JobInput,
     JobListResponse,
     LadaJobRequest,
@@ -39,9 +40,15 @@ settings = get_web_settings()
 job_manager = JobManager(settings)
 
 app = FastAPI(title="Qwen3-ASR Web Console", version="0.1.0")
+
+
+def _cors_origins(value: str) -> list[str]:
+    return [origin.strip() for origin in value.split(",") if origin.strip()]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
+    allow_origins=_cors_origins(settings.cors_origins),
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -66,6 +73,36 @@ def _safe_upload_name(filename: str | None) -> str:
     suffix = Path(original).suffix[:16]
     safe_stem = re.sub(r"[^A-Za-z0-9._@-]+", "_", stem).strip("._ ") or "upload"
     return f"{safe_stem[:80]}-{uuid4().hex[:8]}{suffix}"
+
+
+def _get_job_artifact(job_id: str, artifact_name: str) -> JobArtifact:
+    job = job_manager.get_job(job_id)
+    for artifact in job.artifacts:
+        if artifact.name == artifact_name:
+            return artifact
+    raise ArtifactNotFoundError(f"Artifact not found: {artifact_name}")
+
+
+def _validate_translate_srt_source(path: Path, artifact_kind: str | None = None) -> None:
+    if artifact_kind is not None and artifact_kind.lower() != "srt":
+        raise HTTPException(status_code=400, detail="Source artifact must be an SRT subtitle")
+    if path.suffix.lower() != ".srt":
+        raise HTTPException(status_code=400, detail="Input subtitle file must use the .srt extension")
+    try:
+        size_bytes = path.stat().st_size
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"Input SRT file is not readable: {exc}") from exc
+    max_bytes = settings.deepseek_max_srt_size_mb * 1024 * 1024
+    if size_bytes > max_bytes:
+        raise HTTPException(status_code=413, detail="Input SRT file exceeds DEEPSEEK_MAX_SRT_SIZE_MB")
+
+
+def _validate_translate_srt_text(text: str | None) -> None:
+    if not text:
+        return
+    max_bytes = settings.deepseek_max_srt_size_mb * 1024 * 1024
+    if len(text.encode("utf-8")) > max_bytes:
+        raise HTTPException(status_code=413, detail="Input SRT text exceeds DEEPSEEK_MAX_SRT_SIZE_MB")
 
 
 @app.get("/api/health")
@@ -258,9 +295,11 @@ async def create_translate_job(request: TranslateJobRequest):
 
     if source_job_id:
         try:
+            artifact = _get_job_artifact(source_job_id, artifact_name)
             artifact_path = job_manager.get_artifact_path(source_job_id, artifact_name)
-        except (ArtifactNotFoundError, InvalidArtifactPathError) as exc:
+        except (ArtifactNotFoundError, InvalidArtifactPathError, JobNotFoundError) as exc:
             raise HTTPException(status_code=404, detail="Source artifact not found") from exc
+        _validate_translate_srt_source(artifact_path, artifact.kind)
         source_kind = "artifact"
         source_path = str(artifact_path)
         runner_request = request.model_copy(
@@ -271,9 +310,13 @@ async def create_translate_job(request: TranslateJobRequest):
         input_path = Path(input_file).expanduser()
         if not input_path.is_file():
             raise HTTPException(status_code=400, detail="Input SRT file does not exist")
+        input_path = input_path.resolve()
+        _validate_translate_srt_source(input_path)
         source_kind = "path"
-        source_path = str(input_path.resolve())
+        source_path = str(input_path)
         runner_request = request.model_copy(update={"input_file": source_path})
+    else:
+        _validate_translate_srt_text(request.input_text)
 
     metadata = {
         "source_kind": source_kind,

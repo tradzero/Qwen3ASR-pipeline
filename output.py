@@ -136,33 +136,23 @@ def save_srt(
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
     entries: list[tuple[float, float, str]] = []
-    if time_stamps:
-        for segment_time_stamps, (start_sample, _) in zip(time_stamps, segments):
-            if not segment_time_stamps:
-                continue
-            segment_offset = start_sample / WAV_SAMPLE_RATE
-            entries.extend(
-                _timestamp_entries_for_segment(
-                    segment_time_stamps,
-                    segment_offset,
-                    max_caption_chars,
-                    max_caption_duration,
-                )
+    for index, (text, (start_sample, end_sample)) in enumerate(zip(texts, segments)):
+        segment_entries: list[tuple[float, float, str]] = []
+        if time_stamps and index < len(time_stamps) and time_stamps[index]:
+            segment_entries = _timestamp_entries_for_segment(
+                time_stamps[index] or [],
+                start_sample / WAV_SAMPLE_RATE,
+                max_caption_chars,
+                max_caption_duration,
             )
 
-    if entries:
-        _write_srt_entries(entries, output_path)
-        return
+        if segment_entries:
+            entries.extend(segment_entries)
+            continue
 
-    with open(output_path, "w", encoding="utf-8") as f:
-        idx = 1
-        for text, (start_sample, end_sample) in zip(texts, segments):
-            text = text.strip()
-            if not text:
-                continue
-            start_s = start_sample / WAV_SAMPLE_RATE
-            end_s = end_sample / WAV_SAMPLE_RATE
-            f.write(f"{idx}\n")
-            f.write(f"{_format_srt_time(start_s)} --> {_format_srt_time(end_s)}\n")
-            f.write(f"{text}\n\n")
-            idx += 1
+        text = text.strip()
+        if not text:
+            continue
+        entries.append((start_sample / WAV_SAMPLE_RATE, end_sample / WAV_SAMPLE_RATE, text))
+
+    _write_srt_entries(entries, output_path)

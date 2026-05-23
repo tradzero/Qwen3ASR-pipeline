@@ -92,6 +92,7 @@ def get_web_settings() -> WebSettings:
     return WebSettings(
         host=_env_str("WEB_HOST", defaults.host),
         port=_env_int("WEB_PORT", defaults.port),
+        cors_origins=_env_str("WEB_CORS_ORIGINS", defaults.cors_origins),
         upload_dir=_env_str("WEB_UPLOAD_DIR", defaults.upload_dir),
         job_dir=_env_str("WEB_JOB_DIR", defaults.job_dir),
         artifact_dir=_env_str("WEB_ARTIFACT_DIR", defaults.artifact_dir),
@@ -121,6 +122,7 @@ def get_web_settings() -> WebSettings:
         deepseek_max_tokens=_env_int("DEEPSEEK_MAX_TOKENS", defaults.deepseek_max_tokens),
         deepseek_target_language=_env_str("DEEPSEEK_TARGET_LANGUAGE", defaults.deepseek_target_language),
         deepseek_chunk_chars=_env_int("DEEPSEEK_CHUNK_CHARS", defaults.deepseek_chunk_chars),
+        deepseek_max_srt_size_mb=_env_int("DEEPSEEK_MAX_SRT_SIZE_MB", defaults.deepseek_max_srt_size_mb),
         deepseek_prompt_template=_env_str("DEEPSEEK_PROMPT_TEMPLATE", defaults.deepseek_prompt_template),
     )
 

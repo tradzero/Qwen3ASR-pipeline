@@ -20,6 +20,7 @@ Write-Host "Project .env is loaded by the backend process; secrets are not print
 
 $backendCommand = @"
 Set-Location '$Root'
+`$env:WEB_CORS_ORIGINS = 'http://127.0.0.1:$FrontendPort,http://localhost:$FrontendPort'
 & '$Python' -m uvicorn web_app.main:app --host '$BackendHost' --port $BackendPort
 "@
 

@@ -60,6 +60,7 @@ class WebSettings:
     # Web 服务
     host: str = "127.0.0.1"
     port: int = 7860
+    cors_origins: str = "http://127.0.0.1:5173,http://localhost:5173"
 
     # 运行时目录
     upload_dir: str = "./uploads"
@@ -91,4 +92,5 @@ class WebSettings:
     deepseek_max_tokens: int = 4096
     deepseek_target_language: str = "简体中文"
     deepseek_chunk_chars: int = 6000
+    deepseek_max_srt_size_mb: int = 20
     deepseek_prompt_template: str = DEFAULT_TRANSLATION_PROMPT_TEMPLATE

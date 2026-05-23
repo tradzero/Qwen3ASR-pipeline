@@ -44,8 +44,12 @@ function numberValue(value) {
   return Number(value);
 }
 
+function subtitleArtifacts(job) {
+  return job?.artifacts?.filter((artifact) => artifact.kind === "srt") ?? [];
+}
+
 function hasSubtitleArtifact(job) {
-  return job.artifacts?.some((artifact) => artifact.name === "subtitle" || artifact.kind === "srt");
+  return subtitleArtifacts(job).length > 0;
 }
 
 export function TranslatePage() {
@@ -66,7 +70,9 @@ export function TranslatePage() {
         }
         const nextForm = buildForm(defaults);
         const subtitleJobs = response.jobs.filter(hasSubtitleArtifact);
+        const firstArtifact = subtitleArtifacts(subtitleJobs[0])[0];
         nextForm.source_job_id = subtitleJobs[0]?.job_id ?? "";
+        nextForm.artifact_name = firstArtifact?.name ?? "subtitle";
         setForm(nextForm);
         setJobs(response.jobs);
       })
@@ -134,6 +140,18 @@ export function TranslatePage() {
   };
 
   const subtitleJobs = jobs.filter(hasSubtitleArtifact);
+  const selectedSourceJob = jobs.find((job) => job.job_id === form.source_job_id);
+  const selectedArtifacts = subtitleArtifacts(selectedSourceJob);
+
+  const selectSourceJob = (jobId) => {
+    const job = jobs.find((candidate) => candidate.job_id === jobId);
+    const firstArtifact = subtitleArtifacts(job)[0];
+    setForm((current) => ({
+      ...current,
+      source_job_id: jobId,
+      artifact_name: firstArtifact?.name ?? "",
+    }));
+  };
 
   const submitJob = async (event) => {
     event.preventDefault();
@@ -155,8 +173,11 @@ export function TranslatePage() {
         if (!form.source_job_id) {
           throw new Error("请选择包含 SRT 产物的历史任务。");
         }
+        if (!form.artifact_name.trim()) {
+          throw new Error("请选择要翻译的 SRT 产物。");
+        }
         payload.source_job_id = form.source_job_id;
-        payload.artifact_name = form.artifact_name.trim() || "subtitle";
+        payload.artifact_name = form.artifact_name.trim();
       } else if (sourceMode === "path") {
         if (!form.input_file.trim()) {
           throw new Error("请输入本机 SRT 文件路径。");
@@ -213,7 +234,7 @@ export function TranslatePage() {
             <div className="form-grid">
               <label>
                 历史字幕任务
-                <select onChange={(event) => updateField("source_job_id", event.target.value)} value={form.source_job_id}>
+                <select onChange={(event) => selectSourceJob(event.target.value)} value={form.source_job_id}>
                   <option value="">选择任务</option>
                   {subtitleJobs.map((job) => (
                     <option key={job.job_id} value={job.job_id}>{job.job_id}</option>
@@ -221,8 +242,13 @@ export function TranslatePage() {
                 </select>
               </label>
               <label>
-                artifact
-                <input onChange={(event) => updateField("artifact_name", event.target.value)} value={form.artifact_name} />
+                SRT 产物
+                <select disabled={!selectedArtifacts.length} onChange={(event) => updateField("artifact_name", event.target.value)} value={form.artifact_name}>
+                  <option value="">选择产物</option>
+                  {selectedArtifacts.map((artifact) => (
+                    <option key={artifact.name} value={artifact.name}>{artifact.name}.{artifact.kind}</option>
+                  ))}
+                </select>
               </label>
             </div>
           ) : null}

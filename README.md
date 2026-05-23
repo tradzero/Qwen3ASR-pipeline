@@ -47,6 +47,7 @@ Web 运行配置使用单独的 `WebSettings`，不会改变 CLI 的 ASR `Config
 |------|--------|------|
 | `WEB_HOST` | `127.0.0.1` | 后续 FastAPI 服务监听地址 |
 | `WEB_PORT` | `7860` | 后续 FastAPI 服务端口 |
+| `WEB_CORS_ORIGINS` | `http://127.0.0.1:5173,http://localhost:5173` | 允许访问后端的前端 Origin；`start-web.ps1` 会按 `-FrontendPort` 自动设置 |
 | `WEB_UPLOAD_DIR` | `./uploads` | 浏览器上传文件目录 |
 | `WEB_JOB_DIR` | `./jobs` | 任务历史和运行态目录 |
 | `WEB_ARTIFACT_DIR` | `./output/web` | Web 任务通用产物目录 |
@@ -62,6 +63,7 @@ Web 运行配置使用单独的 `WebSettings`，不会改变 CLI 的 ASR `Config
 | `THINK_LEVEL` | 空 | DeepSeek 思考强度别名；未设置 `DEEPSEEK_REASONING_EFFORT` 时使用，例如 `max` |
 | `API_KEY` | 空 | DeepSeek API key 兼容别名；不会写入日志或任务历史 |
 | `DEEPSEEK_REASONING_EFFORT` | `high` | DeepSeek `reasoning_effort`，支持 `high` / `max` |
+| `DEEPSEEK_MAX_SRT_SIZE_MB` | `20` | 翻译任务允许读取的 SRT 文件或粘贴文本大小上限 |
 
 ### 阶段 1 后端运行时
 
