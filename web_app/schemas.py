@@ -2,7 +2,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from config import Config, WebSettings
+from config import Config, DEEPSEEK_V4_CONTEXT_TOKENS, DEEPSEEK_V4_MAX_OUTPUT_TOKENS, WebSettings
 
 
 JobType = Literal["mock", "asr", "lada", "translate"]
@@ -89,9 +89,8 @@ class TranslateJobRequest(BaseModel):
     target_language: str = Field(default=_WEB_DEFAULTS.deepseek_target_language, min_length=1)
     model: str = Field(default=_WEB_DEFAULTS.deepseek_model, min_length=1)
     reasoning_effort: DeepSeekReasoningEffort = _WEB_DEFAULTS.deepseek_reasoning_effort
-    temperature: float = Field(default=_WEB_DEFAULTS.deepseek_temperature, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=_WEB_DEFAULTS.deepseek_max_tokens, ge=1)
-    chunk_chars: int = Field(default=_WEB_DEFAULTS.deepseek_chunk_chars, ge=500, le=30000)
+    max_tokens: int = Field(default=_WEB_DEFAULTS.deepseek_max_tokens, ge=1, le=DEEPSEEK_V4_MAX_OUTPUT_TOKENS)
+    chunk_chars: int = Field(default=_WEB_DEFAULTS.deepseek_chunk_chars, ge=500, le=DEEPSEEK_V4_CONTEXT_TOKENS)
     prompt_template: str | None = None
 
     @model_validator(mode="after")

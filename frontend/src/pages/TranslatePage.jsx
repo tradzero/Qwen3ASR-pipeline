@@ -9,6 +9,9 @@ import {
 import { JobDetail } from "../components/JobDetail.jsx";
 import { Panel } from "../components/Panel.jsx";
 
+const DEEPSEEK_V4_CONTEXT_TOKENS = 1000000;
+const DEEPSEEK_V4_MAX_OUTPUT_TOKENS = 384000;
+
 const initialForm = {
   input_text: "",
   input_file: "",
@@ -17,9 +20,8 @@ const initialForm = {
   target_language: "简体中文",
   model: "deepseek-v4-pro",
   reasoning_effort: "max",
-  temperature: 0.2,
-  max_tokens: 4096,
-  chunk_chars: 6000,
+  max_tokens: DEEPSEEK_V4_MAX_OUTPUT_TOKENS,
+  chunk_chars: 200000,
   prompt_template: "",
 };
 
@@ -30,7 +32,6 @@ function buildForm(defaults) {
     target_language: web.deepseek_target_language ?? initialForm.target_language,
     model: web.deepseek_model ?? initialForm.model,
     reasoning_effort: web.deepseek_reasoning_effort ?? initialForm.reasoning_effort,
-    temperature: web.deepseek_temperature ?? initialForm.temperature,
     max_tokens: web.deepseek_max_tokens ?? initialForm.max_tokens,
     chunk_chars: web.deepseek_chunk_chars ?? initialForm.chunk_chars,
     prompt_template: web.deepseek_prompt_template ?? "",
@@ -110,7 +111,6 @@ export function TranslatePage({ activeJob, setActiveJob, streamMode, jobError, s
         target_language: form.target_language.trim(),
         model: form.model.trim(),
         reasoning_effort: form.reasoning_effort,
-        temperature: numberValue(form.temperature),
         max_tokens: numberValue(form.max_tokens),
         chunk_chars: numberValue(form.chunk_chars),
         prompt_template: form.prompt_template.trim() || null,
@@ -163,7 +163,7 @@ export function TranslatePage({ activeJob, setActiveJob, streamMode, jobError, s
 
   return (
     <div className="page-grid">
-      <Panel title="DeepSeek 字幕翻译" description="读取 SRT 字幕并输出 translated.srt。">
+      <Panel title="DeepSeek 字幕翻译" description="读取 SRT 字幕并按源文件名输出 SRT。">
         <form className="task-form" onSubmit={submitJob}>
           <div className="segmented-control three" aria-label="字幕来源">
             <button className={sourceMode === "job" ? "active" : ""} onClick={() => setSourceMode("job")} type="button">
@@ -231,16 +231,12 @@ export function TranslatePage({ activeJob, setActiveJob, streamMode, jobError, s
               </select>
             </label>
             <label>
-              temperature
-              <input max="2" min="0" onChange={(event) => updateField("temperature", event.target.value)} step="0.1" type="number" value={form.temperature} />
-            </label>
-            <label>
               max tokens
-              <input min="1" onChange={(event) => updateField("max_tokens", event.target.value)} type="number" value={form.max_tokens} />
+              <input max={DEEPSEEK_V4_MAX_OUTPUT_TOKENS} min="1" onChange={(event) => updateField("max_tokens", event.target.value)} type="number" value={form.max_tokens} />
             </label>
             <label>
               chunk chars
-              <input max="30000" min="500" onChange={(event) => updateField("chunk_chars", event.target.value)} type="number" value={form.chunk_chars} />
+              <input max={DEEPSEEK_V4_CONTEXT_TOKENS} min="500" onChange={(event) => updateField("chunk_chars", event.target.value)} type="number" value={form.chunk_chars} />
             </label>
           </div>
 

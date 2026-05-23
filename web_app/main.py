@@ -294,8 +294,6 @@ async def create_translate_job(request: TranslateJobRequest):
         runtime_defaults["model"] = settings.deepseek_model
     if "reasoning_effort" not in request.model_fields_set:
         runtime_defaults["reasoning_effort"] = settings.deepseek_reasoning_effort
-    if "temperature" not in request.model_fields_set:
-        runtime_defaults["temperature"] = settings.deepseek_temperature
     if "max_tokens" not in request.model_fields_set:
         runtime_defaults["max_tokens"] = settings.deepseek_max_tokens
     if "chunk_chars" not in request.model_fields_set:
@@ -303,7 +301,7 @@ async def create_translate_job(request: TranslateJobRequest):
     if "target_language" not in request.model_fields_set:
         runtime_defaults["target_language"] = settings.deepseek_target_language
     if runtime_defaults:
-        request = request.model_copy(update=runtime_defaults)
+        request = TranslateJobRequest.model_validate({**request.model_dump(), **runtime_defaults})
 
     source_kind = "text"
     source_path: str | None = None
@@ -345,7 +343,6 @@ async def create_translate_job(request: TranslateJobRequest):
         "target_language": request.target_language,
         "model": request.model,
         "reasoning_effort": request.reasoning_effort,
-        "temperature": request.temperature,
         "max_tokens": request.max_tokens,
         "chunk_chars": request.chunk_chars,
         "custom_prompt": bool((request.prompt_template or "").strip()),

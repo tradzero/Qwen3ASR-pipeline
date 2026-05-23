@@ -4,7 +4,7 @@ import asyncio
 import re
 import time
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import httpx
 
@@ -110,6 +110,27 @@ def _extract_content(payload: dict) -> str:
     return content
 
 
+def _build_translation_payload(*, request: TranslateJobRequest, prompt: str) -> dict:
+    reasoning_effort = _normalize_reasoning_effort(request.reasoning_effort)
+    return {
+        "model": request.model,
+        "messages": [{"role": "user", "content": prompt}],
+        "thinking": {"type": "enabled"},
+        "reasoning_effort": reasoning_effort,
+        "max_tokens": request.max_tokens,
+        "response_format": {"type": "text"},
+        "stream": False,
+    }
+
+
+def _translation_output_stem(request: TranslateJobRequest) -> str:
+    if request.input_file:
+        stem = PureWindowsPath(request.input_file).stem.strip()
+        if stem:
+            return stem
+    return "translated"
+
+
 async def _request_translation(
     client: httpx.AsyncClient,
     *,
@@ -118,17 +139,7 @@ async def _request_translation(
     request: TranslateJobRequest,
     prompt: str,
 ) -> str:
-    reasoning_effort = _normalize_reasoning_effort(request.reasoning_effort)
-    payload = {
-        "model": request.model,
-        "messages": [{"role": "user", "content": prompt}],
-        "thinking": {"type": "enabled"},
-        "reasoning_effort": reasoning_effort,
-        "max_tokens": request.max_tokens,
-        "response_format": {"type": "text"},
-        "stream": False,
-        "temperature": request.temperature,
-    }
+    payload = _build_translation_payload(request=request, prompt=prompt)
     response = await client.post(
         url,
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "Accept": "application/json"},
@@ -153,7 +164,7 @@ async def _write_partial(
     completed_blocks = blocks[: max(translations.keys()) + 1]
     partial_path.write_text(_build_srt(completed_blocks, translations), encoding="utf-8")
     if register:
-        await reporter.artifact(name="translation-partial", kind="srt", path=partial_path)
+        await reporter.artifact(name=partial_path.stem, kind="srt", path=partial_path)
 
 
 async def run_translate_web_job(request: TranslateJobRequest, settings: WebSettings, reporter: JobReporter, cancel_token: CancelToken) -> None:
@@ -167,8 +178,9 @@ async def run_translate_web_job(request: TranslateJobRequest, settings: WebSetti
     prompt_template = request.prompt_template or settings.deepseek_prompt_template
     output_dir = reporter._manager.artifact_dir / reporter.job_id
     output_dir.mkdir(parents=True, exist_ok=True)
-    partial_path = output_dir / "translation.partial.srt"
-    output_path = output_dir / "translated.srt"
+    output_stem = _translation_output_stem(request)
+    partial_path = output_dir / f"{output_stem}.partial.srt"
+    output_path = output_dir / f"{output_stem}.srt"
     url = settings.deepseek_api_base.rstrip("/") + settings.deepseek_chat_completion_path
     translations: dict[int, str] = {}
     started = time.monotonic()
@@ -176,10 +188,10 @@ async def run_translate_web_job(request: TranslateJobRequest, settings: WebSetti
     await reporter.stage("translate_running", "DeepSeek 字幕翻译开始。")
     await reporter.log(
         f"DeepSeek 字幕翻译: model={request.model}, reasoning_effort={_normalize_reasoning_effort(request.reasoning_effort)}, "
-        f"blocks={len(blocks)}, chunks={len(chunks)}, target={request.target_language}"
+        f"max_tokens={request.max_tokens}, chunk_chars={request.chunk_chars}, blocks={len(blocks)}, chunks={len(chunks)}, target={request.target_language}"
     )
 
-    timeout = httpx.Timeout(180.0, connect=30.0)
+    timeout = httpx.Timeout(1800.0, connect=30.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
         for chunk_index, chunk in enumerate(chunks, start=1):
             if cancel_token.is_canceled:
@@ -210,4 +222,4 @@ async def run_translate_web_job(request: TranslateJobRequest, settings: WebSetti
     output_path.write_text(_build_srt(blocks, translations), encoding="utf-8")
     elapsed = time.monotonic() - started
     await reporter.progress(done=len(chunks), total=len(chunks), percent=100.0, elapsed_seconds=elapsed, message="字幕翻译完成。")
-    await reporter.artifact(name="translated-subtitle", kind="srt", path=output_path)
+    await reporter.artifact(name=output_stem, kind="srt", path=output_path)

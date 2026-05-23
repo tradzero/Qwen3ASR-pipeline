@@ -24,17 +24,21 @@ npm --prefix frontend install
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 # 编辑 .env，填入 API_KEY；不要提交 .env
 .\scripts\start-web.ps1
+# 修改配置或代码后重启后端/前端
+.\scripts\restart-web.ps1
 ```
 
 默认后端监听 `http://127.0.0.1:7860`，前端监听 `http://127.0.0.1:5173`。后端启动时会静默加载项目根目录 `.env`，不会打印 API key；已有进程环境变量优先于 `.env`。本工具默认只适合本机使用，不建议把 `WEB_HOST` 改成 `0.0.0.0`。局域网访问会暴露本机路径、上传文件和任务执行能力，需自行承担风险。
 
 Web 页面以路径输入为主，适合服务端和浏览器都在本机运行的场景；ASR/LADA 输入可填写 `D:\media\video.mp4` 或 `\\NAS\media\video.mp4`。标准浏览器不会向网页暴露真实绝对路径，所以文件选择控件不能可靠替代本机/UNC 路径输入。
 
-`start-web.ps1` 会在后端窗口中激活 conda 环境，默认环境名是 `qwen3-asr`。如需覆盖：
+`start-web.ps1` 会在后端窗口中激活 conda 环境，默认环境名是 `qwen3-asr`。`restart-web.ps1` 会先停止占用后端/前端端口的监听进程，再用相同参数调用 `start-web.ps1`。如需覆盖：
 
 ```powershell
 .\scripts\start-web.ps1 -CondaEnv qwen3-asr
 .\scripts\start-web.ps1 -CondaHook "$HOME\miniconda3\shell\condabin\conda-hook.ps1"
+.\scripts\restart-web.ps1 -CondaEnv qwen3-asr
+.\scripts\restart-web.ps1 -ShutdownTimeoutSeconds 60
 ```
 
 ### 阶段 0 基线
@@ -76,6 +80,8 @@ Web 运行配置使用单独的 `WebSettings`，不会改变 CLI 的 ASR `Config
 | `THINK_LEVEL` | 空 | DeepSeek 思考强度别名；未设置 `DEEPSEEK_REASONING_EFFORT` 时使用，例如 `max` |
 | `API_KEY` | 空 | DeepSeek API key 兼容别名；不会写入日志或任务历史 |
 | `DEEPSEEK_REASONING_EFFORT` | `high` | DeepSeek `reasoning_effort`，支持 `high` / `max` |
+| `DEEPSEEK_MAX_TOKENS` | `384000` | DeepSeek v4 单次 completion 输出上限；校验上限为 384K tokens |
+| `DEEPSEEK_CHUNK_CHARS` | `200000` | SRT 翻译分块字符预算；校验上限按 v4 1M context 设置 |
 | `DEEPSEEK_MAX_SRT_SIZE_MB` | `20` | 翻译任务允许读取的 SRT 文件或粘贴文本大小上限 |
 
 ### 阶段 1 后端运行时
@@ -116,9 +122,9 @@ LADA 页面会调用 `LADA_CLI_PATH` 指向的 `lada-cli.exe`，并优先把恢�
 
 ### 阶段 5 DeepSeek 字幕翻译
 
-翻译页面读取 SRT 字幕并输出 `translated.srt`。输入可以来自历史 ASR 任务的 `subtitle` 产物、本机 SRT 文件路径，或直接粘贴 SRT 内容。后端只翻译字幕正文，重建输出时保留原 SRT 序号和时间轴；失败或取消时会保留已完成分块的 `translation.partial.srt`。
+翻译页面读取 SRT 字幕并按源 SRT 文件名输出 `<源文件名>.srt`；粘贴文本没有源文件名时回退为 `translated.srt`。输入可以来自历史 ASR 任务的 `subtitle` 产物、本机 SRT 文件路径，或直接粘贴 SRT 内容。后端只翻译字幕正文，重建输出时保留原 SRT 序号和时间轴；失败或取消时会保留已完成分块的 `<源文件名>.partial.srt`。
 
-DeepSeek API 使用 `POST https://api.deepseek.com/chat/completions`，请求体包含 `model`、`messages`、`thinking: {"type":"enabled"}`、`reasoning_effort`、`temperature`、`max_tokens`。`.env.example` 风格变量可直接映射：
+DeepSeek API 使用 `POST https://api.deepseek.com/chat/completions`，请求体包含 `model`、`messages`、`thinking: {"type":"enabled"}`、`reasoning_effort`、`max_tokens`、`response_format` 和 `stream: false`。DeepSeek v4 按 1M context / 384K 最大输出配置；thinking 模式不会发送 `temperature`、`top_p`、`presence_penalty` 或 `frequency_penalty`。`.env.example` 风格变量可直接映射：
 
 ```powershell
 $env:API_KEY="<token>"

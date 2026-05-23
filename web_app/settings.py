@@ -67,13 +67,6 @@ def _env_optional_int(name: str, default: int | None) -> int | None:
     return int(value)
 
 
-def _env_float(name: str, default: float) -> float:
-    value = os.environ.get(name)
-    if value is None or value == "":
-        return default
-    return float(value)
-
-
 def _env_optional_bool(name: str, default: bool | None) -> bool | None:
     value = os.environ.get(name)
     if value is None or value == "":
@@ -127,7 +120,6 @@ def get_web_settings() -> WebSettings:
             "DEEPSEEK_REASONING_EFFORT",
             _env_str("THINK_LEVEL", defaults.deepseek_reasoning_effort),
         ),
-        deepseek_temperature=_env_float("DEEPSEEK_TEMPERATURE", defaults.deepseek_temperature),
         deepseek_max_tokens=_env_int("DEEPSEEK_MAX_TOKENS", defaults.deepseek_max_tokens),
         deepseek_target_language=_env_str("DEEPSEEK_TARGET_LANGUAGE", defaults.deepseek_target_language),
         deepseek_chunk_chars=_env_int("DEEPSEEK_CHUNK_CHARS", defaults.deepseek_chunk_chars),

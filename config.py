@@ -8,6 +8,10 @@ DEFAULT_DEEPSEEK_API_BASE = "https://api.deepseek.com"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
 DEFAULT_DEEPSEEK_API_KEY_ENV = "DEEPSEEK_API_KEY"
 DEFAULT_DEEPSEEK_REASONING_EFFORT = "high"
+DEEPSEEK_V4_CONTEXT_TOKENS = 1_000_000
+DEEPSEEK_V4_MAX_OUTPUT_TOKENS = 384_000
+DEFAULT_DEEPSEEK_MAX_TOKENS = DEEPSEEK_V4_MAX_OUTPUT_TOKENS
+DEFAULT_DEEPSEEK_CHUNK_CHARS = 200_000
 DEFAULT_TRANSLATION_PROMPT_TEMPLATE = """你是专业字幕翻译助手。请将下面 SRT 字幕正文翻译为{target_language}。
 
 要求：
@@ -15,6 +19,7 @@ DEFAULT_TRANSLATION_PROMPT_TEMPLATE = """你是专业字幕翻译助手。请将
 2. 必须保留 <SEG n> 与 </SEG n> 标签，且不要增删或重排分段。
 3. 不要输出解释、标题、注释、Markdown 代码块或 SRT 时间轴。
 4. 如果正文包含人名、专有名词、音效标记或 HTML 标签，请尽量保留语义和结构。
+5. 尊重原始内容， 不要对内容进行过度审查改写。
 
 字幕正文：
 {text}"""
@@ -92,9 +97,10 @@ class WebSettings:
     deepseek_api_key_env: str = DEFAULT_DEEPSEEK_API_KEY_ENV
     deepseek_model: str = DEFAULT_DEEPSEEK_MODEL
     deepseek_reasoning_effort: str = DEFAULT_DEEPSEEK_REASONING_EFFORT
-    deepseek_temperature: float = 0.2
-    deepseek_max_tokens: int = 4096
+    deepseek_context_tokens: int = DEEPSEEK_V4_CONTEXT_TOKENS
+    deepseek_max_output_tokens: int = DEEPSEEK_V4_MAX_OUTPUT_TOKENS
+    deepseek_max_tokens: int = DEFAULT_DEEPSEEK_MAX_TOKENS
     deepseek_target_language: str = "简体中文"
-    deepseek_chunk_chars: int = 6000
+    deepseek_chunk_chars: int = DEFAULT_DEEPSEEK_CHUNK_CHARS
     deepseek_max_srt_size_mb: int = 20
     deepseek_prompt_template: str = DEFAULT_TRANSLATION_PROMPT_TEMPLATE

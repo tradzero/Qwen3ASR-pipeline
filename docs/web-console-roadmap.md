@@ -391,19 +391,19 @@ npm --prefix frontend run build
 
 ## 阶段 5：DeepSeek 手动翻译
 
-状态：SRT 字幕翻译实现中；已按 DeepSeek 2026 文档核对 `chat/completions`、`deepseek-v4-pro/flash`、`thinking` 和 `reasoning_effort` 字段。
+状态：SRT 字幕翻译实现中；已按 DeepSeek 2026 文档核对 `chat/completions`、`deepseek-v4-pro/flash`、`thinking`、`reasoning_effort`、1M context 和 384K 最大输出。
 
 ### 目标
 
-支持从 ASR SRT 字幕、SRT 文件路径或粘贴的 SRT 内容手动触发 DeepSeek 翻译任务，输出保留原时间轴的 `translated.srt`。
+支持从 ASR SRT 字幕、SRT 文件路径或粘贴的 SRT 内容手动触发 DeepSeek 翻译任务，输出保留原时间轴的 `<源文件名>.srt`。
 
 ### 范围
 
-- 新增 DeepSeek 翻译配置：API base、model、thinking/reasoning effort、temperature、max tokens、API key env、prompt 模板。
+- 新增 DeepSeek 翻译配置：API base、model、thinking/reasoning effort、max tokens、chunk chars、API key env、prompt 模板。
 - 新增 translate runner，使用 `httpx` 调用 `POST https://api.deepseek.com/chat/completions`。
 - 支持输入来源：ASR `subtitle` artifact、SRT 文件路径、用户粘贴 SRT。
 - 按 SRT block 和字符预算分块，只翻译字幕正文，重建时保留序号和时间轴。
-- 请求完成后合并为 `translated.srt`；失败或取消时保留已完成分块的 `translation.partial.srt`。
+- 请求完成后合并为 `<源文件名>.srt`；失败或取消时保留已完成分块的 `<源文件名>.partial.srt`。
 - 前端新增翻译面板：选择历史 ASR 字幕、目标语言、模型、思考强度、prompt 预览/编辑、运行翻译。
 - 无 API key 时给出清晰错误，不发起请求。
 
@@ -418,7 +418,7 @@ npm --prefix frontend run build
 ### 审查重点
 
 - API key 不进入日志、历史、异常堆栈或前端持久化。
-- DeepSeek 请求体符合文档：`model`、`messages` 必填，并发送 `thinking: {"type":"enabled"}` 与 `reasoning_effort`。
+- DeepSeek 请求体符合文档：`model`、`messages` 必填，并发送 `thinking: {"type":"enabled"}` 与 `reasoning_effort`；thinking 模式不发送 `temperature`、`top_p`、`presence_penalty`、`frequency_penalty`。
 - 分块策略不会打乱 SRT block 顺序，也不会翻译时间轴。
 - 请求失败时已完成分块不丢失，错误信息可读。
 - prompt 模板有默认值，也允许用户在 UI 中临时覆盖。
@@ -437,7 +437,7 @@ npm --prefix frontend run build
 手动检查：
 
 - 无 API key 时创建翻译任务会失败并提示配置环境变量。
-- 使用短 SRT 翻译成功，生成 `translated.srt`，时间轴不变。
+- 使用短 SRT 翻译成功，生成基于源文件名的 `.srt`，时间轴不变。
 - 使用 ASR `subtitle` artifact 作为输入时，任务历史能关联来源。
 - 取消翻译任务时，在分块边界停止。
 
