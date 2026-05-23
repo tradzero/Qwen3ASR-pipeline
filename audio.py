@@ -1,5 +1,6 @@
 import io
 import subprocess
+from urllib.parse import urlparse
 
 import librosa
 import numpy as np
@@ -8,16 +9,22 @@ import soundfile as sf
 WAV_SAMPLE_RATE = 16000
 
 
+def _is_ffmpeg_only_source(file_path: str) -> bool:
+    scheme = urlparse(file_path).scheme.lower()
+    return len(scheme) > 1 and scheme not in {"file"}
+
+
 def load_audio(file_path: str) -> np.ndarray:
     """加载音频文件为 16kHz mono float32 ndarray。
 
     快速路径使用 librosa，失败则 fallback 到 ffmpeg pipe。
     """
-    try:
-        wav_data, _ = librosa.load(file_path, sr=WAV_SAMPLE_RATE, mono=True)
-        return wav_data
-    except Exception:
-        pass
+    if not _is_ffmpeg_only_source(file_path):
+        try:
+            wav_data, _ = librosa.load(file_path, sr=WAV_SAMPLE_RATE, mono=True)
+            return wav_data
+        except Exception:
+            pass
 
     command = [
         "ffmpeg",

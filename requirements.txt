@@ -1,6 +1,11 @@
-qwen-asr[vllm]>=0.0.6
+qwen-asr>=0.0.6
 silero-vad>=6.2
 librosa>=0.11
 soundfile>=0.13
 numpy>=2.2
-flash-attn>=2.8
+
+# Optional vLLM backend for Linux/WSL/Docker CUDA environments:
+# python -m pip install "qwen-asr[vllm]>=0.0.6"
+
+# Optional acceleration for Linux/WSL CUDA environments:
+# python -m pip install flash-attn>=2.8 --no-build-isolation
