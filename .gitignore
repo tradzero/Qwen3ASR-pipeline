@@ -1,5 +1,6 @@
 __pycache__/
 .vscode/
+.env
 *.py[cod]
 *.egg-info/
 dist/
@@ -8,6 +9,12 @@ build/
 *.wav
 *.mp3
 *.mp4
+cache/
+uploads/
+jobs/
 output/
 models/
 files/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/

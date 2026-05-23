@@ -183,6 +183,13 @@ modelscope download --model Qwen/Qwen3-ASR-1.7B --local_dir ./models/Qwen3-ASR-1
 | 8 | 撰写 `README.md` — 使用说明 & 配置文档 | ✅ 完成 |
 | 9 | 端到端测试 & 调优 | 待开始 |
 | 10 | 服务器模式（持久化推理服务） | 待开始 |
+| 11 | Web 控制台：ASR / LADA / DeepSeek 翻译 | 规划完成，待分阶段实现 |
+
+## Web 控制台分阶段计划
+
+Web 控制台将作为本地任务中心，支持浏览器上传或输入本机/网络路径，分别执行 ASR、LADA 去码和 DeepSeek 翻译任务，并展示进度、日志、任务历史和输出产物。
+
+详细落地计划见 [`docs/web-console-roadmap.md`](docs/web-console-roadmap.md)，其中按阶段列出了交付物、审查重点、验证命令和退出标准。
 
 ## 后续优化：服务器模式（持久化推理服务）
 

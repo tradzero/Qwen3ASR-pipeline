@@ -10,6 +10,10 @@
 - 输出纯文本 `.txt` + 可选 SRT 字幕 `.srt`
 - 模型权重自动下载 / 预下载目录自动复用
 
+## Web 控制台规划
+
+本项目计划增加本地 Web 控制台，使用 React + Vite 前端和 FastAPI 后端，支持网页上传/路径载入、ASR 任务进度展示、LADA 去码任务进度展示，以及手动 DeepSeek 翻译。详细阶段、审查点和验证清单见 [docs/web-console-roadmap.md](docs/web-console-roadmap.md)。
+
 ## 前置条件
 
 - Python 3.12+
