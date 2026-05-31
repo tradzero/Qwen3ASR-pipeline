@@ -1,232 +1,136 @@
-# Qwen3-ASR 长视频转录工具 — 项目规划
+# Qwen3-ASR Pipeline Agent Guide
 
-## 项目目标
+本文件面向接手项目的 agent，用来快速理解当前实现、模块边界和验证入口。面向用户的安装、启动和参数说明放在 `README.md`；Web 分阶段历史和更细的路线记录放在 `docs/web-console-roadmap.md`。
 
-构建一个本地化的长视频/音频 ASR 转录管线，核心流程：
+## 当前项目状态
 
-```
-长视频 → ffmpeg pipe 提取音频(16kHz mono, 直接读入内存)
-       → Silero-VAD 语音活动检测 & 智能切片  ← CPU，与 GPU 模型加载并行
-       → Qwen3-ASR-1.7B (vLLM backend) 批量推理
-       → 结果聚合 & 输出(纯文本 / SRT 字幕）
-```
+这是一个本地长视频/音频处理工具，核心能力已经从单纯 ASR 扩展为本地 Web 任务控制台：
 
-## 目标硬件
+- CLI：`main.py` 串起音频提取、VAD 切片、ASR 推理、TXT/SRT 输出。
+- Web：`web_app/main.py` 提供 FastAPI API，`frontend/` 提供 React + Vite 控制台。
+- ASR：Qwen3-ASR-1.7B，Windows `auto` 后端默认走 transformers，非 Windows `auto` 默认走 vLLM。
+- 时间轴：默认启用 Qwen3-ForcedAligner-0.6B 生成更细 SRT；失败或关闭时回退到 VAD 段落时间。
+- 翻译：DeepSeek chat completions，后端使用 `stream: true` 读取 DeepSeek SSE，并通过任务 SSE 推送日志/进度。
+- LADA：Web 端通过外部 `lada-cli.exe` 子进程执行去码任务。
 
-- **GPU**: RTX 4070 Super 12GB VRAM
-- **RAM**: 32GB
-- **显存预算**：1.7B bf16 权重 ≈ 3.4GB + vLLM 引擎开销 ≈ 1GB + KV cache ≈ 4GB → **总计 ~8.4GB**，12GB 充裕
-- **默认参数**：`gpu_memory_utilization=0.7`、`max_inference_batch_size=32`
+默认运行配置以 12GB 显存 Windows 本机为主要调优对象：`batch=4`、`max_new_tokens=1024`、`segment_duration=60`、`max_segment_duration=120`、默认识别语言为 `Japanese`。
+
+项目使用 conda 管理 Python 环境；运行测试、脚本或后端前，先确认并使用当前项目对应的 conda 环境。
 
 ## 技术选型
 
-| 组件 | 方案 | 说明 |
-|------|------|------|
-| 音频提取 | ffmpeg subprocess pipe | 从任意视频/音频格式提取 16kHz mono PCM，直接 pipe 到内存（不写中间文件） |
-| VAD 切片 | silero-vad (CPU) | 轻量 CPU 模型，检测语音段边界 |
-| ASR 推理 | qwen-asr[vllm] | `Qwen3ASRModel.LLM(...)` vLLM backend，单卡批量推理 |
-| 模型权重 | HuggingFace / ModelScope 自动下载 | 首次加载时自动拉取，也支持预下载到本地路径 |
-| 配置管理 | config.py | 所有可调参数集中管理，CLI 参数可覆盖 |
-| 输出格式 | TXT + SRT | 聚合转录文本 + 可选 SRT 字幕（基于 VAD 段落级时间戳） |
+| 领域 | 当前实现 | 主要文件 |
+|------|----------|----------|
+| 音频读取 | 视频/远程输入优先 ffmpeg pipe 输出 16kHz mono s16le；普通音频先试 librosa，失败再回退 ffmpeg | `audio.py` |
+| VAD 切片 | Silero VAD，primary + loose 双阈值；优先静音边界，必要时用低能量点或均匀切分兜底 | `vad.py` |
+| 预处理缓存 | 缓存 audio.npy、segments.json、metadata.json；缓存键包含输入 stat、采样率和 VAD 参数版本 | `cache.py` |
+| ASR 推理 | `qwen_asr.Qwen3ASRModel`，支持 transformers/vLLM；模型对象进程内缓存；OOM 时 batch 自动降为单段重试 | `transcribe.py` |
+| SRT/TXT 输出 | 清理 ASR 重复文本；SRT 优先 ForcedAligner 时间戳，回退 VAD 时间 | `output.py` |
+| Web API | FastAPI、任务队列、上传、artifact 下载、任务 SSE | `web_app/main.py`, `web_app/jobs.py` |
+| Web 前端 | React + Vite 单页控制台，ASR/LADA/翻译/历史页 | `frontend/src/` |
+| DeepSeek 翻译 | SRT 分块、上下文携带、流式读取 DeepSeek SSE、失败/取消保留 partial SRT | `web_app/runners/translate.py` |
+| LADA | 调用外部 CLI，输出目录优先输入文件同目录，失败回退 Web artifact 目录 | `web_app/runners/lada.py`, `web_app/lada_paths.py` |
 
-## 架构设计
+## 目录和模块地图
 
-### 1. 配置模块 (`config.py`)
-
-集中管理所有可调参数，使用 dataclass：
-
-```python
-@dataclass
-class Config:
-    # 输入输出
-    input_file: str = ""
-    output_dir: str = "./output"
-    save_srt: bool = False
-
-    # 模型
-    model: str = "Qwen/Qwen3-ASR-1.7B"
-    language: str | None = None       # None = 自动检测
-
-    # vLLM 引擎
-    gpu_memory_utilization: float = 0.7
-    max_inference_batch_size: int = 32
-    max_new_tokens: int = 4096
-
-    # VAD 切片
-    segment_duration: int = 120       # 目标切片长度（秒）
-    max_segment_duration: int = 180   # 切片上限（秒）
+```text
+.
+├── main.py                 # CLI 入口；也暴露 run_asr_job() 给 Web ASR runner 复用
+├── config.py               # Config + WebSettings；不要把服务运行参数混进 Config
+├── audio.py                # 16kHz mono float32 音频读取
+├── vad.py                  # Silero VAD + 切点逻辑
+├── cache.py                # 音频/VAD 预处理缓存
+├── transcribe.py           # 模型选择、加载缓存、批量推理
+├── output.py               # TXT/SRT 聚合和 ASR 文本清理
+├── web_app/
+│   ├── main.py             # FastAPI routes
+│   ├── jobs.py             # JobManager、状态持久化、SSE 发布
+│   ├── schemas.py          # Pydantic 请求/响应模型
+│   ├── settings.py         # .env + 环境变量装配 WebSettings
+│   ├── warmup.py           # Web 启动预热 VAD/ASR
+│   └── runners/            # ASR、LADA、DeepSeek 翻译任务 runner
+├── frontend/src/
+│   ├── App.jsx             # 顶层路由、任务恢复、任务 SSE 订阅
+│   ├── api/client.js       # 后端 API 和 EventSource 封装
+│   ├── pages/              # ASR、LADA、翻译、历史页
+│   └── components/         # Panel、JobDetail 等通用组件
+├── tests/                  # 单元测试，覆盖音频、VAD、输出、翻译、缓存清理
+├── scripts/                # Windows Web 启动/重启脚本
+└── docs/                   # Web 控制台路线和阶段记录
 ```
 
-### 2. 音频预处理模块 (`audio.py`)
+运行时目录包括 `cache/`、`uploads/`、`jobs/`、`output/`、`models/`、`frontend/dist/`，这些目录不应作为源码改动提交。
 
-- `load_audio(file_path) -> np.ndarray`：
-  - 先尝试 librosa 加载（快速路径）
-  - 失败则 fallback 到 ffmpeg subprocess pipe（输出到 stdout，不写中间文件）
-  - 统一返回 16kHz mono float32 ndarray
+## 关键数据流
 
-### 3. VAD 切片模块 (`vad.py`)
+CLI ASR：
 
-参考 `qwen3_asr_toolkit/audio_tools.py` 的 `process_vad()` 逻辑：
-
-- 使用 `silero_vad.get_speech_timestamps()` 检测语音段
-- 以 `segment_duration`（默认 120s）为目标切分长度
-- 在 VAD 检测到的静音边界处切分，避免切断语句
-- 若切片超过 `max_segment_duration`（默认 180s），均匀再分
-- VAD 失败时 fallback 到固定时长均匀切分
-- 返回 `list[(start_sample, end_sample, wav_segment)]`
-
-### 4. ASR 推理模块 (`transcribe.py`)
-
-核心：**单卡 vLLM 批量推理，最大化吞吐**
-
-```python
-model = Qwen3ASRModel.LLM(
-    model=config.model,
-    gpu_memory_utilization=config.gpu_memory_utilization,  # 0.7 for 12GB
-    max_inference_batch_size=config.max_inference_batch_size,  # 32 for 12GB
-    max_new_tokens=config.max_new_tokens,
-)
-results = model.transcribe(
-    audio=[(seg, 16000) for seg in segments],
-    language=config.language,
-)
+```text
+input media
+  -> audio.load_audio()
+  -> cache.load/save_preprocess_cache()
+  -> vad.process_vad()
+  -> transcribe.init_model()
+  -> transcribe.transcribe_segments()
+  -> output.save_txt()/save_srt()
 ```
 
-**并发优化要点：**
-- vLLM 内部调度器天然支持 continuous batching，无需手动线程池
-- `max_inference_batch_size=32` 为 12GB 显存保守默认值，可按实际调大
-- `gpu_memory_utilization=0.7` → 12GB × 0.7 = 8.4GB，预留 3.6GB 给系统/显示
-- 音频切片越短（120s），batch 内样本越多，GPU 利用率越高
-- 代码必须包裹在 `if __name__ == '__main__':` 内（vLLM spawn 要求）
+Web 任务：
 
-### 5. 结果聚合模块 (`output.py`)
-
-- 按切片原始顺序拼接转录文本
-- 基于 VAD 切片时间偏移生成全局时间戳
-- 输出纯文本 `.txt`
-- 可选输出 SRT 字幕 `.srt`（段落级，每个 VAD 切片一条字幕）
-
-### 6. CLI 入口 (`main.py`)
-
-```
-python main.py -i video.mp4 [--model Qwen/Qwen3-ASR-1.7B] [--gpu-mem 0.7] \
-    [--batch-size 32] [--segment-duration 120] [--max-segment 180] \
-    [--language auto] [--srt] [--output-dir ./output]
+```text
+frontend create job
+  -> FastAPI /api/jobs/<type>
+  -> JobManager.create_job()
+  -> runner runs in asyncio task
+  -> JobReporter emits status/progress/log/artifact
+  -> /api/jobs/{job_id}/events streams SSE
+  -> frontend refreshes active JobRecord
 ```
 
-### 7. 流水线并行策略
+Web 当前同一时间只允许一个 active job。任务历史保存在 `jobs/history.json`；服务重启时未完成任务会标记为 `interrupted`。
 
-```
-Thread 1 (CPU): ffmpeg 提取音频 → silero-vad 切片
-Thread 2 (GPU): vLLM 引擎初始化 & 模型加载
-                ↓ 两者完成后 ↓
-           vLLM 批量推理所有切片
-```
+## 配置边界
 
-- silero-vad 是纯 CPU PyTorch 模型，处理极快
-- vLLM 初始化期间大量时间花在磁盘 I/O 和 CUDA 操作上，释放 GIL
-- 两者互不阻塞，可用 `threading` 并行执行
+- `Config` 只描述 ASR 任务参数，CLI 和 Web ASR 请求都会转成它。
+- `WebSettings` 描述 Web 服务、运行时目录、预热、LADA、DeepSeek 等服务级参数。
+- `web_app/settings.py` 会静默读取项目根目录 `.env`，已有进程环境变量优先。
+- DeepSeek API key 通过 `DEEPSEEK_API_KEY` 或 `API_KEY` 读取，不要写入日志、任务历史或前端状态。
+- Web 普通 ASR 请求不能随意覆盖 `device_map`、`dtype`、缓存根目录等机器策略；这些由 `WebSettings` 控制。
 
-## 文件结构
+## 开发注意事项
 
-```
-qwenasr/
-├── AGENTS.md           # 本文件 — 项目规划
-├── README.md           # 使用说明 & 配置文档
-├── requirements.txt    # 依赖列表
-├── config.py           # 集中配置（dataclass）
-├── main.py             # CLI 入口
-├── audio.py            # ffmpeg pipe 音频提取 & 加载
-├── vad.py              # Silero-VAD 切片
-├── transcribe.py       # Qwen3-ASR vLLM 推理
-└── output.py           # 结果聚合 & SRT 生成
-```
+- 修改 ASR 默认值时，同步检查 `config.py`、`main.py` CLI help、`frontend/src/pages/AsrPage.jsx` fallback、`README.md`。
+- 修改 VAD 逻辑时，如果缓存语义变了，需要更新 `cache.py` 中的 `VAD_CACHE_VERSION`。
+- 修改输出清理时，同时验证 TXT 和 SRT；`clean_asr_text()` 当前用于两者。
+- 修改 Web runner 时，优先通过 `JobReporter` 发状态、进度、日志和产物，不要绕过 `JobManager`。
+- 修改 artifact 路径规则时，注意 `JobManager._validate_artifact_path()` 的允许根目录，避免暴露任意本机文件。
+- 修改 DeepSeek 翻译时，保留 SRT 分段标签契约：模型只翻译 `<SEG n>` 内容，后端负责重建 SRT 时间轴。
+- Windows 原生环境下 vLLM 通常不可用，`backend=auto` 会选 transformers；不要假设本机能跑 vLLM。
 
-## 依赖
+## 常用验证
 
-```
-qwen-asr[vllm]          # Qwen3-ASR + vLLM backend
-silero-vad              # VAD 模型（CPU）
-librosa                 # 音频加载（快速路径）
-soundfile               # 音频读写
-numpy                   # 数组操作
+后端/核心单测：
+
+```powershell
+& C:\Users\Zero\miniconda3\envs\qwen3-asr\python.exe -m unittest discover -s tests
 ```
 
-系统依赖：`ffmpeg`
+基础编译检查：
 
-## 模型权重获取
-
-`qwen-asr` 包会在首次调用 `Qwen3ASRModel.LLM(model="Qwen/Qwen3-ASR-1.7B")` 时自动从 HuggingFace 下载权重。
-
-如需预下载或国内加速：
-```bash
-# HuggingFace
-hf download Qwen/Qwen3-ASR-1.7B --local-dir ./models/Qwen3-ASR-1.7B
-
-# ModelScope（国内推荐）
-modelscope download --model Qwen/Qwen3-ASR-1.7B --local_dir ./models/Qwen3-ASR-1.7B
+```powershell
+python -m py_compile config.py main.py web_app\runners\translate.py tests\test_translate.py
 ```
 
-预下载后在 `config.py` 中将 `model` 指向本地路径即可。
+前端构建：
 
-## 开发任务清单
-
-| # | 任务 | 状态 |
-|---|------|------|
-| 1 | 创建 `requirements.txt` | ✅ 完成 |
-| 2 | 实现 `config.py` — 集中配置管理 | ✅ 完成 |
-| 3 | 实现 `audio.py` — ffmpeg pipe 音频提取 & 加载 | ✅ 完成 |
-| 4 | 实现 `vad.py` — Silero-VAD 切片逻辑 | ✅ 完成 |
-| 5 | 实现 `transcribe.py` — vLLM 批量推理 | ✅ 完成 |
-| 6 | 实现 `output.py` — 文本聚合 & SRT 生成 | ✅ 完成 |
-| 7 | 实现 `main.py` — CLI 入口 & 流水线编排 | ✅ 完成 |
-| 8 | 撰写 `README.md` — 使用说明 & 配置文档 | ✅ 完成 |
-| 9 | 端到端测试 & 调优 | 待开始 |
-| 10 | 服务器模式（持久化推理服务） | 待开始 |
-| 11 | Web 控制台：ASR / LADA / DeepSeek 翻译 | 规划完成，待分阶段实现 |
-
-## Web 控制台分阶段计划
-
-Web 控制台将作为本地任务中心，支持浏览器上传或输入本机/网络路径，分别执行 ASR、LADA 去码和 DeepSeek 翻译任务，并展示进度、日志、任务历史和输出产物。
-
-详细落地计划见 [`docs/web-console-roadmap.md`](docs/web-console-roadmap.md)，其中按阶段列出了交付物、审查重点、验证命令和退出标准。
-
-## 后续优化：服务器模式（持久化推理服务）
-
-**动机**：当前每次运行都要加载模型到 GPU（权重加载 + CUDA Graph 编译），启动开销大。如果需要频繁/批量转录，应改用持久化服务器模式，模型常驻显存。
-
-### 方案设计
-
-qwen-asr 自带 `qwen-asr-serve` 命令（本质是 `vllm serve` 的封装），启动后暴露 OpenAI 兼容 API。
-
-**启动服务器**：
-```bash
-qwen-asr-serve ./models/Qwen3-ASR-1.7B \
-    --gpu-memory-utilization 0.7 \
-    --host 127.0.0.1 --port 8000
+```powershell
+npm --prefix frontend run build
 ```
 
-**客户端调用**：
-```python
-from qwen_asr import Qwen3ASRModel
+Git 空白检查：
 
-model = Qwen3ASRModel.OpenAI(
-    base_url="http://127.0.0.1:8000/v1",
-    model="Qwen/Qwen3-ASR-1.7B",
-)
-results = model.transcribe(audio=[(wav, 16000)], language=None)
+```powershell
+git -c safe.directory=C:/Users/Zero/Qwen3ASR-pipeline diff --check
 ```
 
-### 改造要点
-
-- `transcribe.py` 新增 `init_model_client(config)` 函数，返回 OpenAI 模式的 model 对象
-- `config.py` 新增 `server_url: str | None = None` 参数
-- `main.py` CLI 新增 `--server-url` 参数，传入时跳过本地模型加载，直接连接远程服务
-- CPU 流水线（音频加载 + VAD）不受影响，无需改动
-- 服务器启动可以写一个 `serve.sh` 脚本简化操作
-
-### 注意事项
-
-- 服务器模式下 `max_inference_batch_size` 由服务端控制，客户端无需设置
-- `enforce_eager=True` 可传给 `qwen-asr-serve` 以加速服务器首次启动
-- 作为临时加速手段，也可以在当前离线模式中加 `enforce_eager=True` 跳过 CUDA Graph 编译，减少约 30-60 秒启动时间
+涉及 Web UI 的可视化或交互改动，启动后端/前端并用浏览器实际确认。若只改文档，通常不需要跑完整测试。
