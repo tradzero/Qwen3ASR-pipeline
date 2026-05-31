@@ -214,7 +214,7 @@ python main.py -i video.mp4 \
     --segment-duration 60 \
     --max-segment 120 \
     --cache-dir ./cache \
-    --language Chinese \
+    --language Japanese \
     --backend auto \
     --device-map cuda:0 \
     --dtype bfloat16 \
@@ -232,7 +232,7 @@ python main.py -i video.mp4 \
 | `--model` | `Qwen/Qwen3-ASR-1.7B` | ASR 主模型名称或本地路径；若存在 `./models/Qwen3-ASR-1.7B` 会自动优先使用 |
 | `--aligner-model` | `Qwen/Qwen3-ForcedAligner-0.6B` | ForcedAligner 模型名称或本地路径；若存在 `./models/Qwen3-ForcedAligner-0.6B` 会自动优先使用 |
 | `--timestamps / --no-timestamps` | 开启 | 是否启用 ForcedAligner 词/字级时间戳；关闭后 SRT 使用 VAD 段落级时间 |
-| `--language` | 自动检测 | 指定语言（如 `Chinese`、`English`） |
+| `--language` | `Japanese` | 指定语言（如 `Japanese`、`Chinese`、`English`）；传 `auto` 可自动检测 |
 | `--backend` | `auto` | 推理后端：`auto`、`transformers`、`vllm`；Windows `auto` 使用 transformers，WSL/Linux `auto` 使用 vLLM |
 | `--device-map` | `cuda:0` | transformers 后端和 ForcedAligner 的设备映射 |
 | `--dtype` | `bfloat16` | transformers 后端和 ForcedAligner 的 dtype，可选 `bfloat16`、`float16`、`float32` |
@@ -257,6 +257,7 @@ class Config:
     model: str = "Qwen/Qwen3-ASR-1.7B"
     forced_aligner_model: str | None = "Qwen/Qwen3-ForcedAligner-0.6B"
     return_time_stamps: bool = True
+    language: str | None = "Japanese"      # None = 自动检测
     save_srt: bool = True
     backend: str = "auto"
     device_map: str = "cuda:0"

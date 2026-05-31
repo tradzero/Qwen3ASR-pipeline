@@ -39,7 +39,7 @@ def parse_args() -> Config:
     parser.add_argument("--aligner-model", default=defaults.forced_aligner_model, help="ForcedAligner 模型名称或本地路径；设为空字符串可关闭")
     parser.add_argument("--timestamps", dest="return_time_stamps", action="store_true", default=defaults.return_time_stamps, help="启用 ForcedAligner 时间戳 (默认开启)")
     parser.add_argument("--no-timestamps", dest="return_time_stamps", action="store_false", help="关闭 ForcedAligner 时间戳，SRT 回退到 VAD 段落级时间")
-    parser.add_argument("--language", default=defaults.language, help="语言 (默认: 自动检测)")
+    parser.add_argument("--language", default=defaults.language, help=f"语言 (默认: {defaults.language or '自动检测'}；auto=自动检测)")
     parser.add_argument("--backend", choices=("auto", "vllm", "transformers"), default=defaults.backend, help="推理后端 (默认: auto；Windows 自动使用 transformers)")
     parser.add_argument("--device-map", default=defaults.device_map, help="transformers 后端设备映射 (默认: cuda:0)")
     parser.add_argument("--dtype", choices=("bfloat16", "float16", "float32"), default=defaults.dtype, help="transformers/ForcedAligner dtype (默认: bfloat16)")
@@ -62,7 +62,7 @@ def parse_args() -> Config:
         model=args.model,
         forced_aligner_model=args.aligner_model or None,
         return_time_stamps=args.return_time_stamps,
-        language=args.language,
+        language=None if str(args.language or "").lower() == "auto" else args.language,
         backend=args.backend,
         device_map=args.device_map,
         dtype=args.dtype,

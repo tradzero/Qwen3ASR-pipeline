@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 DEFAULT_ASR_MODEL = "Qwen/Qwen3-ASR-1.7B"
 DEFAULT_FORCED_ALIGNER_MODEL = "Qwen/Qwen3-ForcedAligner-0.6B"
+DEFAULT_ASR_LANGUAGE = "Japanese"
 DEFAULT_LADA_CLI_PATH = r"D:\lada\lada-cli.exe"
 DEFAULT_DEEPSEEK_API_BASE = "https://api.deepseek.com"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
@@ -37,7 +38,7 @@ class Config:
     model: str = DEFAULT_ASR_MODEL
     forced_aligner_model: str | None = DEFAULT_FORCED_ALIGNER_MODEL
     return_time_stamps: bool = True
-    language: str | None = None  # None = 自动检测
+    language: str | None = DEFAULT_ASR_LANGUAGE  # None = 自动检测
     backend: str = "auto"  # auto / vllm / transformers
     device_map: str = "cuda:0"
     dtype: str = "bfloat16"

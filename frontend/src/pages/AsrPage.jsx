@@ -8,10 +8,18 @@ import {
 import { JobDetail } from "../components/JobDetail.jsx";
 import { Panel } from "../components/Panel.jsx";
 
+const ASR_LANGUAGE_OPTIONS = [
+  { value: "Japanese", label: "日语" },
+  { value: "Chinese", label: "中文" },
+  { value: "English", label: "英语" },
+  { value: "Korean", label: "韩语" },
+  { value: "", label: "自动检测" },
+];
+
 const initialForm = {
   input_file: "",
   model: "Qwen/Qwen3-ASR-1.7B",
-  language: "",
+  language: "Japanese",
   backend: "auto",
   gpu_memory_utilization: 0.5,
   max_inference_batch_size: 2,
@@ -33,7 +41,7 @@ function buildForm(defaults) {
     ...initialForm,
     ...asr,
     input_file: "",
-    language: asr.language ?? "",
+    language: asr.language ?? initialForm.language,
     forced_aligner_model: asr.forced_aligner_model ?? "",
   };
 }
@@ -159,7 +167,13 @@ export function AsrPage({ activeJob, setActiveJob, onTranslateArtifact, streamMo
             </label>
             <label>
               语言
-              <input onChange={(event) => updateField("language", event.target.value)} placeholder="auto" value={form.language} />
+              <select onChange={(event) => updateField("language", event.target.value)} value={form.language}>
+                {ASR_LANGUAGE_OPTIONS.map((option) => (
+                  <option key={option.value || "auto"} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </label>
             <label>
               后端
