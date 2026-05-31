@@ -1,12 +1,25 @@
-import io
+import os
 import subprocess
 from urllib.parse import urlparse
 
 import librosa
 import numpy as np
-import soundfile as sf
 
 WAV_SAMPLE_RATE = 16000
+VIDEO_EXTENSIONS = {
+    ".3gp",
+    ".avi",
+    ".flv",
+    ".m4v",
+    ".mkv",
+    ".mov",
+    ".mp4",
+    ".mpeg",
+    ".mpg",
+    ".ts",
+    ".webm",
+    ".wmv",
+}
 
 
 def _is_ffmpeg_only_source(file_path: str) -> bool:
@@ -14,25 +27,32 @@ def _is_ffmpeg_only_source(file_path: str) -> bool:
     return len(scheme) > 1 and scheme not in {"file"}
 
 
-def load_audio(file_path: str) -> np.ndarray:
-    """加载音频文件为 16kHz mono float32 ndarray。
+def _should_prefer_ffmpeg(file_path: str) -> bool:
+    if _is_ffmpeg_only_source(file_path):
+        return True
 
-    快速路径使用 librosa，失败则 fallback 到 ffmpeg pipe。
-    """
-    if not _is_ffmpeg_only_source(file_path):
-        try:
-            wav_data, _ = librosa.load(file_path, sr=WAV_SAMPLE_RATE, mono=True)
-            return wav_data
-        except Exception:
-            pass
+    parsed = urlparse(file_path)
+    path = parsed.path if parsed.scheme.lower() == "file" else file_path
+    return os.path.splitext(path)[1].lower() in VIDEO_EXTENSIONS
 
+
+def _load_audio_with_ffmpeg(file_path: str) -> np.ndarray:
     command = [
         "ffmpeg",
-        "-i", file_path,
-        "-ar", str(WAV_SAMPLE_RATE),
-        "-ac", "1",
-        "-c:a", "pcm_s16le",
-        "-f", "wav",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        file_path,
+        "-vn",
+        "-ar",
+        str(WAV_SAMPLE_RATE),
+        "-ac",
+        "1",
+        "-c:a",
+        "pcm_s16le",
+        "-f",
+        "s16le",
         "-",
     ]
     process = subprocess.Popen(
@@ -47,7 +67,19 @@ def load_audio(file_path: str) -> np.ndarray:
             f"ffmpeg 处理失败: {stderr_data.decode('utf-8', errors='ignore')}"
         )
 
-    with io.BytesIO(stdout_data) as buf:
-        wav_data, _ = sf.read(buf, dtype="float32")
+    return np.frombuffer(stdout_data, dtype=np.int16).astype(np.float32) / 32768.0
 
-    return wav_data
+
+def load_audio(file_path: str) -> np.ndarray:
+    """加载音频文件为 16kHz mono float32 ndarray。
+
+    视频/远程输入优先使用 ffmpeg pipe，音频文件优先使用 librosa。
+    """
+    if _should_prefer_ffmpeg(file_path):
+        return _load_audio_with_ffmpeg(file_path)
+
+    try:
+        wav_data, _ = librosa.load(file_path, sr=WAV_SAMPLE_RATE, mono=True)
+        return wav_data.astype(np.float32, copy=False)
+    except Exception:
+        return _load_audio_with_ffmpeg(file_path)

@@ -11,8 +11,8 @@ from audio import WAV_SAMPLE_RATE
 from config import Config
 
 
-CACHE_VERSION = 1
-VAD_CACHE_VERSION = "silero-vad:min_speech_1500:min_silence_500:v1"
+CACHE_VERSION = 2
+VAD_CACHE_VERSION = "silero-vad:mid_silence:primary500_loose250_pad300:v2"
 
 
 def _is_remote_source(input_file: str) -> bool:
