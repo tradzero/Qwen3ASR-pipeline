@@ -126,7 +126,7 @@ LADA 页面会调用 `LADA_CLI_PATH` 指向的 `lada-cli.exe`，并优先把恢�
 
 翻译页面读取 SRT 字幕并按源 SRT 文件名输出 `<源文件名>.srt`；粘贴文本没有源文件名时回退为 `translated.srt`。输入可以来自历史 ASR 任务的 `subtitle` 产物、本机 SRT 文件路径，或直接粘贴 SRT 内容。后端只翻译字幕正文，重建输出时保留原 SRT 序号和时间轴；失败或取消时会保留已完成分块的 `<源文件名>.partial.srt`。
 
-DeepSeek API 使用 `POST https://api.deepseek.com/chat/completions`，请求体包含 `model`、`messages`、`thinking: {"type":"enabled"}`、`reasoning_effort`、`max_tokens`、`response_format` 和 `stream: false`。DeepSeek v4 按 1M context / 384K 最大输出配置；thinking 模式不会发送 `temperature`、`top_p`、`presence_penalty` 或 `frequency_penalty`。`.env.example` 风格变量可直接映射：
+DeepSeek API 使用 `POST https://api.deepseek.com/chat/completions`，请求体包含 `model`、`messages`、`thinking: {"type":"enabled"}`、`reasoning_effort`、`max_tokens`、`response_format` 和 `stream: true`。后端按 DeepSeek SSE 流式读取响应，并通过任务 SSE 定期刷新翻译日志，避免长分块时页面一直像在死等。DeepSeek v4 按 1M context / 384K 最大输出配置；thinking 模式不会发送 `temperature`、`top_p`、`presence_penalty` 或 `frequency_penalty`。`.env.example` 风格变量可直接映射：
 
 ```powershell
 $env:API_KEY="<token>"
@@ -209,8 +209,8 @@ python main.py -i video.mp4 \
     --model Qwen/Qwen3-ASR-1.7B \
     --aligner-model Qwen/Qwen3-ForcedAligner-0.6B \
     --gpu-mem 0.5 \
-    --batch-size 2 \
-    --max-tokens 2048 \
+    --batch-size 4 \
+    --max-tokens 1024 \
     --segment-duration 60 \
     --max-segment 120 \
     --cache-dir ./cache \
@@ -237,8 +237,8 @@ python main.py -i video.mp4 \
 | `--device-map` | `cuda:0` | transformers 后端和 ForcedAligner 的设备映射 |
 | `--dtype` | `bfloat16` | transformers 后端和 ForcedAligner 的 dtype，可选 `bfloat16`、`float16`、`float32` |
 | `--gpu-mem` | `0.5` | vLLM 后端 GPU 显存利用率；transformers 后端不使用 |
-| `--batch-size` | `2` | 最大推理批大小；显存不足时可降为 1 |
-| `--max-tokens` | `2048` | 最大生成 token 数 |
+| `--batch-size` | `4` | 最大推理批大小；显存不足时可降为 1 |
+| `--max-tokens` | `1024` | 最大生成 token 数 |
 | `--segment-duration` | `60` | VAD 目标切片长度（秒） |
 | `--max-segment` | `120` | VAD 切片上限（秒） |
 | `--cache-dir` | `./cache` | 音频/VAD 预处理缓存目录 |
@@ -263,8 +263,8 @@ class Config:
     device_map: str = "cuda:0"
     dtype: str = "bfloat16"
     gpu_memory_utilization: float = 0.5   # 仅 vLLM 后端使用
-    max_inference_batch_size: int = 2     # 显存不足时可降为 1
-    max_new_tokens: int = 2048
+    max_inference_batch_size: int = 4     # 显存不足时可降为 1
+    max_new_tokens: int = 1024
     segment_duration: int = 60            # VAD 目标切片长度
     max_segment_duration: int = 120       # VAD 切片上限
     use_cache: bool = True

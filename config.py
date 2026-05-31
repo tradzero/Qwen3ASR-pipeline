@@ -45,8 +45,8 @@ class Config:
 
     # 推理引擎
     gpu_memory_utilization: float = 0.5
-    max_inference_batch_size: int = 2
-    max_new_tokens: int = 2048
+    max_inference_batch_size: int = 4
+    max_new_tokens: int = 1024  # ASR 输出上限，防止模型生成过长文本导致内存暴增
 
     # VAD 切片
     segment_duration: int = 60  # 目标切片长度（秒）

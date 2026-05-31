@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import time
 from dataclasses import dataclass
@@ -23,6 +24,10 @@ class SubtitleBlock:
 
 _SEGMENT_RE = re.compile(r"<SEG\s+(\d+)>\s*(.*?)\s*</SEG\s+\1>", re.DOTALL | re.IGNORECASE)
 Message = dict[str, str]
+
+
+class TranslationCanceled(Exception):
+    pass
 
 
 def _normalize_reasoning_effort(value: str) -> str:
@@ -100,18 +105,42 @@ def _build_srt(blocks: list[SubtitleBlock], translations: dict[int, str]) -> str
     return "\n\n".join(output_blocks) + "\n"
 
 
-def _extract_content(payload: dict) -> str:
+def _extract_stream_deltas(payload: dict) -> tuple[str, str]:
     choices = payload.get("choices")
     if not isinstance(choices, list) or not choices:
-        raise RuntimeError("DeepSeek 响应缺少 choices。")
-    message = choices[0].get("message") if isinstance(choices[0], dict) else None
-    content = message.get("content") if isinstance(message, dict) else None
-    if not isinstance(content, str) or not content.strip():
-        raise RuntimeError("DeepSeek 响应缺少 message.content。")
-    return content
+        return "", ""
+    choice = choices[0] if isinstance(choices[0], dict) else {}
+    delta = choice.get("delta") if isinstance(choice, dict) else None
+    if isinstance(delta, dict):
+        content = delta.get("content")
+        reasoning = delta.get("reasoning_content")
+        return (content if isinstance(content, str) else "", reasoning if isinstance(reasoning, str) else "")
+
+    message = choice.get("message") if isinstance(choice, dict) else None
+    if isinstance(message, dict):
+        content = message.get("content")
+        return (content if isinstance(content, str) else "", "")
+    return "", ""
 
 
-def _build_translation_payload(*, request: TranslateJobRequest, prompt: str, context_messages: list[Message] | None = None) -> dict:
+def _stream_data_from_line(line: str) -> str | None:
+    stripped = line.strip()
+    if not stripped or stripped.startswith(":"):
+        return None
+    if stripped.startswith("data:"):
+        return stripped[5:].strip()
+    if stripped.startswith("{"):
+        return stripped
+    return None
+
+
+def _build_translation_payload(
+    *,
+    request: TranslateJobRequest,
+    prompt: str,
+    context_messages: list[Message] | None = None,
+    stream: bool = True,
+) -> dict:
     reasoning_effort = _normalize_reasoning_effort(request.reasoning_effort)
     messages = [*(context_messages or []), {"role": "user", "content": prompt}]
     return {
@@ -121,7 +150,7 @@ def _build_translation_payload(*, request: TranslateJobRequest, prompt: str, con
         "reasoning_effort": reasoning_effort,
         "max_tokens": request.max_tokens,
         "response_format": {"type": "text"},
-        "stream": False,
+        "stream": stream,
     }
 
 
@@ -183,17 +212,71 @@ async def _request_translation(
     request: TranslateJobRequest,
     prompt: str,
     context_messages: list[Message] | None = None,
+    reporter: JobReporter | None = None,
+    cancel_token: CancelToken | None = None,
+    chunk_index: int = 0,
+    chunk_total: int = 0,
+    started: float = 0.0,
 ) -> str:
     payload = _build_translation_payload(request=request, prompt=prompt, context_messages=context_messages)
-    response = await client.post(
-        url,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "Accept": "application/json"},
-        json=payload,
-    )
-    if response.status_code >= 400:
-        detail = response.text[:500].replace(api_key, "<redacted>")
-        raise RuntimeError(f"DeepSeek 请求失败: HTTP {response.status_code} {detail}")
-    return _extract_content(response.json())
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "Accept": "text/event-stream"}
+    content_parts: list[str] = []
+    content_chars = 0
+    reasoning_chars = 0
+    stream_events = 0
+    last_reported_at = time.monotonic()
+
+    async with client.stream("POST", url, headers=headers, json=payload) as response:
+        if response.status_code >= 400:
+            body = (await response.aread()).decode("utf-8", errors="replace")
+            detail = body[:500].replace(api_key, "<redacted>")
+            raise RuntimeError(f"DeepSeek 请求失败: HTTP {response.status_code} {detail}")
+
+        if reporter is not None and chunk_index and chunk_total:
+            await reporter.log(f"字幕翻译分块 {chunk_index}/{chunk_total} 已连接 DeepSeek stream。")
+
+        async for line in response.aiter_lines():
+            if cancel_token is not None and cancel_token.is_canceled:
+                raise TranslationCanceled()
+
+            data = _stream_data_from_line(line)
+            if data is None:
+                continue
+            if data == "[DONE]":
+                break
+
+            try:
+                chunk_payload = json.loads(data)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(f"DeepSeek stream JSON 解析失败: {data[:120]}") from exc
+
+            content_delta, reasoning_delta = _extract_stream_deltas(chunk_payload)
+            if content_delta:
+                content_parts.append(content_delta)
+                content_chars += len(content_delta)
+            if reasoning_delta:
+                reasoning_chars += len(reasoning_delta)
+            stream_events += 1
+
+            now = time.monotonic()
+            if reporter is not None and chunk_index and chunk_total and now - last_reported_at >= 5.0:
+                elapsed = now - started if started else 0.0
+                await reporter.progress(
+                    done=chunk_index - 1,
+                    total=chunk_total,
+                    elapsed_seconds=elapsed,
+                    message=f"字幕翻译分块 {chunk_index}/{chunk_total} 流式接收中。",
+                )
+                await reporter.log(
+                    f"字幕翻译分块 {chunk_index}/{chunk_total} 流式接收中: "
+                    f"events={stream_events}, content_chars={content_chars}, reasoning_chars={reasoning_chars}。"
+                )
+                last_reported_at = now
+
+    content = "".join(content_parts)
+    if not content.strip():
+        raise RuntimeError("DeepSeek stream 响应缺少 message.content。")
+    return content
 
 
 async def _write_partial(
@@ -256,8 +339,17 @@ async def run_translate_web_job(request: TranslateJobRequest, settings: WebSetti
                     request=request,
                     prompt=prompt,
                     context_messages=context_messages,
+                    reporter=reporter,
+                    cancel_token=cancel_token,
+                    chunk_index=chunk_index,
+                    chunk_total=len(chunks),
+                    started=started,
                 )
                 translations.update(_parse_translated_segments(content, expected_indexes))
+            except TranslationCanceled:
+                await reporter.log("翻译任务检测到取消请求，正在保留已完成字幕分块。")
+                await _write_partial(reporter, partial_path, blocks, translations, register=True)
+                return
             except Exception:
                 await _write_partial(reporter, partial_path, blocks, translations, register=True)
                 raise
