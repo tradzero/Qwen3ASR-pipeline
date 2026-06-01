@@ -25,7 +25,7 @@ function formatSeconds(value) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-export function JobDetail({ job, onCancel, onTranslateArtifact, busy = false }) {
+export function JobDetail({ job, onCancel, onTranslateArtifact, onResumeTranslate, busy = false }) {
   const logBoxRef = useRef(null);
   const shouldStickToBottomRef = useRef(true);
   const lastScrollTopRef = useRef(0);
@@ -59,6 +59,10 @@ export function JobDetail({ job, onCancel, onTranslateArtifact, busy = false }) 
   const canCancel = Boolean(onCancel) && !TERMINAL_STATUSES.has(job.status);
   const translateArtifact = subtitleArtifact(job);
   const canTranslate = Boolean(onTranslateArtifact) && job.type === "asr" && job.status === "succeeded" && Boolean(translateArtifact);
+  const canResumeTranslate = Boolean(onResumeTranslate)
+    && job.type === "translate"
+    && TERMINAL_STATUSES.has(job.status)
+    && job.status !== "succeeded";
   const onLogScroll = () => {
     const logBox = logBoxRef.current;
     if (!logBox) {
@@ -82,11 +86,16 @@ export function JobDetail({ job, onCancel, onTranslateArtifact, busy = false }) 
           <strong>{job.status}</strong>
           <span className="job-stage">{job.stage}</span>
         </div>
-        {canTranslate || canCancel ? (
+        {canTranslate || canResumeTranslate || canCancel ? (
           <div className="job-actions">
             {canTranslate ? (
               <button className="ghost-button accent" disabled={busy} onClick={() => onTranslateArtifact(job, translateArtifact)} type="button">
                 转交翻译
+              </button>
+            ) : null}
+            {canResumeTranslate ? (
+              <button className="ghost-button accent" disabled={busy} onClick={() => onResumeTranslate(job)} type="button">
+                继续翻译
               </button>
             ) : null}
             {canCancel ? (

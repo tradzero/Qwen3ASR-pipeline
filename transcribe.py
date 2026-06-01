@@ -190,13 +190,19 @@ def transcribe_segments(
     language: str | None = None,
     batch_size: int = 0,
     return_time_stamps: bool = False,
+    cuda_cache_policy: str = "batch",
     progress_callback: ProgressCallback | None = None,
     cancel_token: object | None = None,
 ) -> tuple[list[str], list[list[Any] | None]]:
     """批量转录所有切片，返回有序文本和模型时间戳。"""
+    normalized_cache_policy = cuda_cache_policy.lower()
+    if normalized_cache_policy not in {"batch", "oom"}:
+        raise ValueError(f"不支持的 CUDA cache 清理策略: {cuda_cache_policy}")
+
     audio_inputs = [(seg, WAV_SAMPLE_RATE) for _, _, seg in segments]
     total = len(audio_inputs)
     t_start = time.time()
+    print(f"[ASR] CUDA cache policy={normalized_cache_policy}")
 
     def collect_outputs(results) -> tuple[list[str], list[list[Any] | None]]:
         texts = [getattr(r, "text", "") for r in results]
@@ -267,6 +273,7 @@ def transcribe_segments(
         emit_progress(started_done, total_count, len(batch_audio), progress)
         if torch.cuda.is_available():
             torch.cuda.reset_peak_memory_stats()
+        batch_oom = False
         try:
             results = model.transcribe(
                 audio=batch_audio,
@@ -278,6 +285,7 @@ def transcribe_segments(
             emit_progress(completed_done, total_count, len(batch_audio), message)
             return results
         except torch.cuda.OutOfMemoryError:
+            batch_oom = True
             message = f"[ASR] batch OOM{cuda_peak_text()}"
             print(message)
             emit_progress(started_done, total_count, len(batch_audio), message)
@@ -306,7 +314,8 @@ def transcribe_segments(
                 emit_progress(min(started_done + retry_index, total_count), total_count, 1, message)
             return retry_results
         finally:
-            clear_cuda_cache()
+            if normalized_cache_policy == "batch" or batch_oom:
+                clear_cuda_cache()
 
     # 少量切片或未指定 batch_size 时一次性推理
     if batch_size <= 0 or total <= batch_size:

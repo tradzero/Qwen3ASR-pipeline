@@ -22,7 +22,7 @@ from web_app.jobs import (
 from web_app.process_priority import set_process_priority
 from web_app.runners.asr import run_asr_web_job
 from web_app.runners.lada import run_lada_web_job
-from web_app.runners.translate import run_translate_web_job
+from web_app.runners.translate import build_resume_request_from_state, load_translation_state, run_translate_web_job
 from web_app.schemas import (
     AsrJobRequest,
     CancelJobResponse,
@@ -112,6 +112,17 @@ def _validate_translate_srt_text(text: str | None) -> None:
     max_bytes = settings.deepseek_max_srt_size_mb * 1024 * 1024
     if len(text.encode("utf-8")) > max_bytes:
         raise HTTPException(status_code=413, detail="Input SRT text exceeds DEEPSEEK_MAX_SRT_SIZE_MB")
+
+
+def _find_translation_state_path(job_id: str) -> Path:
+    job = job_manager.get_job(job_id)
+    if job.type != "translate":
+        raise HTTPException(status_code=400, detail="Only translate jobs can be resumed")
+    output_dir = (job_manager.artifact_dir / job_id).resolve()
+    candidates = sorted(output_dir.glob("*.translate_state.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    if not candidates:
+        raise HTTPException(status_code=404, detail="Translation checkpoint not found")
+    return candidates[0]
 
 
 @app.get("/api/health")
@@ -298,6 +309,8 @@ async def create_translate_job(request: TranslateJobRequest):
         runtime_defaults["max_tokens"] = settings.deepseek_max_tokens
     if "chunk_chars" not in request.model_fields_set:
         runtime_defaults["chunk_chars"] = settings.deepseek_chunk_chars
+    if "max_blocks_per_chunk" not in request.model_fields_set:
+        runtime_defaults["max_blocks_per_chunk"] = settings.deepseek_max_blocks_per_chunk
     if "target_language" not in request.model_fields_set:
         runtime_defaults["target_language"] = settings.deepseek_target_language
     if runtime_defaults:
@@ -345,6 +358,7 @@ async def create_translate_job(request: TranslateJobRequest):
         "reasoning_effort": request.reasoning_effort,
         "max_tokens": request.max_tokens,
         "chunk_chars": request.chunk_chars,
+        "max_blocks_per_chunk": request.max_blocks_per_chunk,
         "custom_prompt": bool((request.prompt_template or "").strip()),
     }
     try:
@@ -359,6 +373,53 @@ async def create_translate_job(request: TranslateJobRequest):
 
     async def runner(reporter, cancel_token) -> None:
         await run_translate_web_job(runner_request, settings, reporter, cancel_token)
+
+    asyncio.create_task(job_manager.run_job(job.job_id, runner))
+    return response_job
+
+
+@app.post("/api/jobs/translate/{job_id}/resume")
+async def resume_translate_job(job_id: str):
+    if not get_deepseek_api_key(settings):
+        raise HTTPException(status_code=400, detail=f"DeepSeek API key 未配置，请设置 {settings.deepseek_api_key_env} 或 API_KEY")
+
+    previous_job = _get_job_or_404(job_id)
+    if previous_job.type != "translate":
+        raise HTTPException(status_code=400, detail="Only translate jobs can be resumed")
+    if previous_job.status == "succeeded":
+        raise HTTPException(status_code=400, detail="Succeeded translate jobs do not need resume")
+
+    state_path = _find_translation_state_path(job_id)
+    try:
+        state = load_translation_state(state_path)
+        runner_request = build_resume_request_from_state(state)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"Translation checkpoint is not resumable: {exc}") from exc
+
+    metadata = {
+        "source_kind": "resume",
+        "resume_from_job_id": job_id,
+        "resume_state_path": str(state_path),
+        "target_language": runner_request.target_language,
+        "model": runner_request.model,
+        "reasoning_effort": runner_request.reasoning_effort,
+        "max_tokens": runner_request.max_tokens,
+        "chunk_chars": runner_request.chunk_chars,
+        "max_blocks_per_chunk": runner_request.max_blocks_per_chunk,
+        "custom_prompt": bool((runner_request.prompt_template or "").strip()),
+    }
+    try:
+        job = await job_manager.create_job(
+            "translate",
+            JobInput(source_kind="resume", path=str(state_path)),
+            metadata=metadata,
+        )
+    except JobConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    response_job = job.model_copy(deep=True)
+
+    async def runner(reporter, cancel_token) -> None:
+        await run_translate_web_job(runner_request, settings, reporter, cancel_token, resume_state_path=state_path)
 
     asyncio.create_task(job_manager.run_job(job.job_id, runner))
     return response_job

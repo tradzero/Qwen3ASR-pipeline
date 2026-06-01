@@ -14,6 +14,7 @@ DEEPSEEK_V4_MAX_OUTPUT_TOKENS = 384_000
 DEFAULT_DEEPSEEK_MAX_TOKENS = DEEPSEEK_V4_MAX_OUTPUT_TOKENS
 DEFAULT_DEEPSEEK_CHUNK_CHARS = 200_000
 DEFAULT_DEEPSEEK_CONTEXT_CHARS = 12_000
+DEFAULT_DEEPSEEK_MAX_BLOCKS_PER_CHUNK = 80
 DEFAULT_TRANSLATION_PROMPT_TEMPLATE = """你是专业字幕翻译助手。请将下面 SRT 字幕正文翻译为{target_language}。
 
 要求：
@@ -45,12 +46,13 @@ class Config:
 
     # 推理引擎
     gpu_memory_utilization: float = 0.5
-    max_inference_batch_size: int = 4
+    max_inference_batch_size: int = 5
     max_new_tokens: int = 1024  # ASR 输出上限，防止模型生成过长文本导致内存暴增
+    cuda_cache_policy: str = "batch"  # batch=每批清理；oom=仅 OOM/重试时清理
 
     # VAD 切片
-    segment_duration: int = 60  # 目标切片长度（秒）
-    max_segment_duration: int = 120  # 切片上限（秒）
+    segment_duration: int = 30  # 目标切片长度（秒）
+    max_segment_duration: int = 60  # 切片上限（秒）
 
     # 预处理缓存
     use_cache: bool = True
@@ -105,5 +107,6 @@ class WebSettings:
     deepseek_target_language: str = "简体中文"
     deepseek_chunk_chars: int = DEFAULT_DEEPSEEK_CHUNK_CHARS
     deepseek_context_chars: int = DEFAULT_DEEPSEEK_CONTEXT_CHARS
+    deepseek_max_blocks_per_chunk: int = DEFAULT_DEEPSEEK_MAX_BLOCKS_PER_CHUNK
     deepseek_max_srt_size_mb: int = 20
     deepseek_prompt_template: str = DEFAULT_TRANSLATION_PROMPT_TEMPLATE

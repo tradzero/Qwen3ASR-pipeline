@@ -124,6 +124,10 @@ def get_web_settings() -> WebSettings:
         deepseek_target_language=_env_str("DEEPSEEK_TARGET_LANGUAGE", defaults.deepseek_target_language),
         deepseek_chunk_chars=_env_int("DEEPSEEK_CHUNK_CHARS", defaults.deepseek_chunk_chars),
         deepseek_context_chars=_env_int("DEEPSEEK_CONTEXT_CHARS", defaults.deepseek_context_chars),
+        deepseek_max_blocks_per_chunk=_env_int(
+            "DEEPSEEK_MAX_BLOCKS_PER_CHUNK",
+            defaults.deepseek_max_blocks_per_chunk,
+        ),
         deepseek_max_srt_size_mb=_env_int("DEEPSEEK_MAX_SRT_SIZE_MB", defaults.deepseek_max_srt_size_mb),
         deepseek_prompt_template=_env_str("DEEPSEEK_PROMPT_TEMPLATE", defaults.deepseek_prompt_template),
     )

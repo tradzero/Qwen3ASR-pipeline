@@ -61,6 +61,14 @@ export async function createTranslateJob(payload) {
   );
 }
 
+export async function resumeTranslateJob(jobId) {
+  return readJson(
+    await fetch(`${API_BASE_URL}/api/jobs/translate/${encodeURIComponent(jobId)}/resume`, {
+      method: "POST",
+    }),
+  );
+}
+
 export async function cancelJob(jobId) {
   return readJson(await fetch(`${API_BASE_URL}/api/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" }));
 }

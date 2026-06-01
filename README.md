@@ -84,6 +84,7 @@ Web 运行配置使用单独的 `WebSettings`，不会改变 CLI 的 ASR `Config
 | `DEEPSEEK_MAX_TOKENS` | `384000` | DeepSeek v4 单次 completion 输出上限；校验上限为 384K tokens |
 | `DEEPSEEK_CHUNK_CHARS` | `200000` | SRT 翻译分块字符预算；校验上限按 v4 1M context 设置 |
 | `DEEPSEEK_CONTEXT_CHARS` | `12000` | 多分块翻译时携带的上一批字幕/译文参考字符预算；不回传 `reasoning_content` |
+| `DEEPSEEK_MAX_BLOCKS_PER_CHUNK` | `80` | 单个翻译分块最多包含的字幕条数，减少模型漏回 `<SEG n>` 的概率 |
 | `DEEPSEEK_MAX_SRT_SIZE_MB` | `20` | 翻译任务允许读取的 SRT 文件或粘贴文本大小上限 |
 
 ### 阶段 1 后端运行时
@@ -124,7 +125,7 @@ LADA 页面会调用 `LADA_CLI_PATH` 指向的 `lada-cli.exe`，并优先把恢�
 
 ### 阶段 5 DeepSeek 字幕翻译
 
-翻译页面读取 SRT 字幕并按源 SRT 文件名输出 `<源文件名>.srt`；粘贴文本没有源文件名时回退为 `translated.srt`。输入可以来自历史 ASR 任务的 `subtitle` 产物、本机 SRT 文件路径，或直接粘贴 SRT 内容。后端只翻译字幕正文，重建输出时保留原 SRT 序号和时间轴；失败或取消时会保留已完成分块的 `<源文件名>.partial.srt`。
+翻译页面读取 SRT 字幕并按源 SRT 文件名输出 `<源文件名>.srt`；粘贴文本没有源文件名时回退为 `translated.srt`。输入可以来自历史 ASR 任务的 `subtitle` 产物、本机 SRT 文件路径，或直接粘贴 SRT 内容。后端只翻译字幕正文，重建输出时保留原 SRT 序号和时间轴；失败或取消时会保留已完成分块的 `<源文件名>.partial.srt`，并写入 `<源文件名>.translate_state.json` checkpoint。DeepSeek 漏回 `<SEG n>` 时会先保留已返回段，再自动补译缺失段；失败、取消或服务中断后，可在失败的翻译任务上点击“继续翻译”从 checkpoint 恢复。
 
 DeepSeek API 使用 `POST https://api.deepseek.com/chat/completions`，请求体包含 `model`、`messages`、`thinking: {"type":"enabled"}`、`reasoning_effort`、`max_tokens`、`response_format` 和 `stream: true`。后端按 DeepSeek SSE 流式读取响应，并通过任务 SSE 定期刷新翻译日志，避免长分块时页面一直像在死等。DeepSeek v4 按 1M context / 384K 最大输出配置；thinking 模式不会发送 `temperature`、`top_p`、`presence_penalty` 或 `frequency_penalty`。`.env.example` 风格变量可直接映射：
 
@@ -155,6 +156,7 @@ $env:THINK_LEVEL="max"
 | `POST` | `/api/jobs/asr` | 创建 ASR 任务 |
 | `POST` | `/api/jobs/lada` | 创建 LADA 去码任务 |
 | `POST` | `/api/jobs/translate` | 创建 DeepSeek SRT 翻译任务 |
+| `POST` | `/api/jobs/translate/{job_id}/resume` | 从失败/取消/中断翻译任务的 checkpoint 继续翻译 |
 
 运行时目录 `uploads/`、`jobs/`、`output/`、`cache/`、`models/` 和前端构建目录均已在 `.gitignore` 中排除。
 
@@ -263,10 +265,10 @@ class Config:
     device_map: str = "cuda:0"
     dtype: str = "bfloat16"
     gpu_memory_utilization: float = 0.5   # 仅 vLLM 后端使用
-    max_inference_batch_size: int = 4     # 显存不足时可降为 1
+    max_inference_batch_size: int = 5     # 显存不足时可降为 1
     max_new_tokens: int = 1024
-    segment_duration: int = 60            # VAD 目标切片长度
-    max_segment_duration: int = 120       # VAD 切片上限
+    segment_duration: int = 30            # VAD 目标切片长度
+    max_segment_duration: int = 60       # VAD 切片上限
     use_cache: bool = True
     cache_dir: str = "./cache"
     ...

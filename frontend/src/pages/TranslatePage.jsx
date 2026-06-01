@@ -5,6 +5,7 @@ import {
   createTranslateJob,
   getDefaults,
   listJobs,
+  resumeTranslateJob,
 } from "../api/client.js";
 import { JobDetail } from "../components/JobDetail.jsx";
 import { Panel } from "../components/Panel.jsx";
@@ -22,6 +23,7 @@ const initialForm = {
   reasoning_effort: "max",
   max_tokens: DEEPSEEK_V4_MAX_OUTPUT_TOKENS,
   chunk_chars: 200000,
+  max_blocks_per_chunk: 80,
   prompt_template: "",
 };
 
@@ -34,6 +36,7 @@ function buildForm(defaults) {
     reasoning_effort: web.deepseek_reasoning_effort ?? initialForm.reasoning_effort,
     max_tokens: web.deepseek_max_tokens ?? initialForm.max_tokens,
     chunk_chars: web.deepseek_chunk_chars ?? initialForm.chunk_chars,
+    max_blocks_per_chunk: web.deepseek_max_blocks_per_chunk ?? initialForm.max_blocks_per_chunk,
     prompt_template: web.deepseek_prompt_template ?? "",
   };
 }
@@ -113,6 +116,7 @@ export function TranslatePage({ activeJob, setActiveJob, streamMode, jobError, s
         reasoning_effort: form.reasoning_effort,
         max_tokens: numberValue(form.max_tokens),
         chunk_chars: numberValue(form.chunk_chars),
+        max_blocks_per_chunk: numberValue(form.max_blocks_per_chunk),
         prompt_template: form.prompt_template.trim() || null,
       };
 
@@ -154,6 +158,20 @@ export function TranslatePage({ activeJob, setActiveJob, streamMode, jobError, s
     try {
       const response = await cancelJob(activeJob.job_id);
       setActiveJob(response.job);
+    } catch (nextError) {
+      setError(nextError.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const requestResumeTranslate = async (job) => {
+    setSubmitting(true);
+    setError("");
+    setJobError?.("");
+    try {
+      const resumedJob = await resumeTranslateJob(job.job_id);
+      setActiveJob(resumedJob);
     } catch (nextError) {
       setError(nextError.message);
     } finally {
@@ -238,6 +256,10 @@ export function TranslatePage({ activeJob, setActiveJob, streamMode, jobError, s
               chunk chars
               <input max={DEEPSEEK_V4_CONTEXT_TOKENS} min="500" onChange={(event) => updateField("chunk_chars", event.target.value)} type="number" value={form.chunk_chars} />
             </label>
+            <label>
+              max blocks
+              <input max="500" min="1" onChange={(event) => updateField("max_blocks_per_chunk", event.target.value)} type="number" value={form.max_blocks_per_chunk} />
+            </label>
           </div>
 
           <label>
@@ -254,7 +276,7 @@ export function TranslatePage({ activeJob, setActiveJob, streamMode, jobError, s
       <Panel title="任务进度">
         <div className="stream-line">{streamMode === "live" ? "SSE live" : streamMode === "polling" ? "polling" : "idle"}</div>
         {jobError ? <div className="error-box">{jobError}</div> : null}
-        <JobDetail job={activeJob} busy={submitting} onCancel={requestCancel} />
+        <JobDetail job={activeJob} busy={submitting} onCancel={requestCancel} onResumeTranslate={requestResumeTranslate} />
       </Panel>
     </div>
   );

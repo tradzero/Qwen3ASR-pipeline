@@ -51,8 +51,14 @@ def parse_args() -> Config:
         help=f"最大推理批大小 (默认: {defaults.max_inference_batch_size}，显存不足时可降为 1)",
     )
     parser.add_argument("--max-tokens", type=int, default=defaults.max_new_tokens, help=f"最大生成 token 数 (默认: {defaults.max_new_tokens})")
-    parser.add_argument("--segment-duration", type=int, default=defaults.segment_duration, help="VAD 目标切片长度/秒 (默认: 60)")
-    parser.add_argument("--max-segment", type=int, default=defaults.max_segment_duration, help="VAD 切片上限/秒 (默认: 120)")
+    parser.add_argument(
+        "--cuda-cache-policy",
+        choices=("batch", "oom"),
+        default=defaults.cuda_cache_policy,
+        help=f"CUDA cache 清理策略 (默认: {defaults.cuda_cache_policy}; batch=每批清理, oom=仅 OOM/重试时清理)",
+    )
+    parser.add_argument("--segment-duration", type=int, default=defaults.segment_duration, help=f"VAD 目标切片长度/秒 (默认: {defaults.segment_duration})")
+    parser.add_argument("--max-segment", type=int, default=defaults.max_segment_duration, help=f"VAD 切片上限/秒 (默认: {defaults.max_segment_duration})")
     parser.add_argument("--cache-dir", default=defaults.cache_dir, help="音频/VAD 预处理缓存目录 (默认: ./cache)")
     parser.add_argument("--no-cache", dest="use_cache", action="store_false", default=defaults.use_cache, help="关闭音频/VAD 预处理缓存")
     parser.add_argument("--refresh-cache", action="store_true", default=defaults.refresh_cache, help="忽略并重建当前输入的音频/VAD 缓存")
@@ -74,6 +80,7 @@ def parse_args() -> Config:
         gpu_memory_utilization=args.gpu_mem,
         max_inference_batch_size=args.batch_size,
         max_new_tokens=args.max_tokens,
+        cuda_cache_policy=args.cuda_cache_policy,
         segment_duration=args.segment_duration,
         max_segment_duration=args.max_segment,
         use_cache=args.use_cache,
@@ -251,6 +258,7 @@ def run_asr_job(
         model, segments, config.language,
         batch_size=config.max_inference_batch_size,
         return_time_stamps=use_model_time_stamps,
+        cuda_cache_policy=config.cuda_cache_policy,
         progress_callback=progress_callback,
         cancel_token=cancel_token,
     )
