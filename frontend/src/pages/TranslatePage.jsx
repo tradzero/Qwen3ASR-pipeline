@@ -24,6 +24,7 @@ const initialForm = {
   max_tokens: DEEPSEEK_V4_MAX_OUTPUT_TOKENS,
   chunk_chars: 200000,
   max_blocks_per_chunk: 80,
+  debug_io: false,
   prompt_template: "",
 };
 
@@ -37,6 +38,7 @@ function buildForm(defaults) {
     max_tokens: web.deepseek_max_tokens ?? initialForm.max_tokens,
     chunk_chars: web.deepseek_chunk_chars ?? initialForm.chunk_chars,
     max_blocks_per_chunk: web.deepseek_max_blocks_per_chunk ?? initialForm.max_blocks_per_chunk,
+    debug_io: web.deepseek_debug_io ?? initialForm.debug_io,
     prompt_template: web.deepseek_prompt_template ?? "",
   };
 }
@@ -117,6 +119,7 @@ export function TranslatePage({ activeJob, setActiveJob, streamMode, jobError, s
         max_tokens: numberValue(form.max_tokens),
         chunk_chars: numberValue(form.chunk_chars),
         max_blocks_per_chunk: numberValue(form.max_blocks_per_chunk),
+        debug_io: Boolean(form.debug_io),
         prompt_template: form.prompt_template.trim() || null,
       };
 
@@ -260,6 +263,10 @@ export function TranslatePage({ activeJob, setActiveJob, streamMode, jobError, s
               max blocks
               <input max="500" min="1" onChange={(event) => updateField("max_blocks_per_chunk", event.target.value)} type="number" value={form.max_blocks_per_chunk} />
             </label>
+          </div>
+
+          <div className="toggle-grid">
+            <label><input checked={form.debug_io} onChange={(event) => updateField("debug_io", event.target.checked)} type="checkbox" />debug I/O</label>
           </div>
 
           <label>

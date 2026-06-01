@@ -211,6 +211,20 @@ def _write_json_atomic(path: Path, payload: dict) -> None:
     os.replace(tmp_path, path)
 
 
+def _write_debug_json(debug_dir: Path | None, filename: str, payload: dict) -> None:
+    if debug_dir is None:
+        return
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    _write_json_atomic(debug_dir / filename, payload)
+
+
+def _write_debug_text(debug_dir: Path | None, filename: str, content: str) -> None:
+    if debug_dir is None:
+        return
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    (debug_dir / filename).write_text(content, encoding="utf-8")
+
+
 def _write_translation_state(
     state_path: Path,
     *,
@@ -242,6 +256,7 @@ def _write_translation_state(
             "max_tokens": request.max_tokens,
             "chunk_chars": request.chunk_chars,
             "max_blocks_per_chunk": request.max_blocks_per_chunk,
+            "debug_io": request.debug_io,
             "prompt_template": prompt_template,
         },
     }
@@ -271,6 +286,7 @@ def build_resume_request_from_state(state: dict) -> TranslateJobRequest:
         max_tokens=int(request_payload.get("max_tokens") or 1),
         chunk_chars=int(request_payload.get("chunk_chars") or 500),
         max_blocks_per_chunk=int(request_payload.get("max_blocks_per_chunk") or 80),
+        debug_io=request_payload.get("debug_io", False),
         prompt_template=request_payload.get("prompt_template"),
     )
 
@@ -387,8 +403,23 @@ async def _request_translation(
     chunk_index: int = 0,
     chunk_total: int = 0,
     started: float = 0.0,
+    debug_dir: Path | None = None,
+    debug_label: str | None = None,
+    expected_indexes: list[int] | None = None,
 ) -> str:
     payload = _build_translation_payload(request=request, prompt=prompt, context_messages=context_messages)
+    if debug_label:
+        _write_debug_json(
+            debug_dir,
+            f"{debug_label}.request.json",
+            {
+                "url": url,
+                "chunk_index": chunk_index,
+                "chunk_total": chunk_total,
+                "expected_indexes": expected_indexes or [],
+                "payload": payload,
+            },
+        )
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "Accept": "text/event-stream"}
     content_parts: list[str] = []
     content_chars = 0
@@ -400,6 +431,8 @@ async def _request_translation(
         if response.status_code >= 400:
             body = (await response.aread()).decode("utf-8", errors="replace")
             detail = body[:500].replace(api_key, "<redacted>")
+            if debug_label:
+                _write_debug_text(debug_dir, f"{debug_label}.error.txt", detail)
             raise RuntimeError(f"DeepSeek 请求失败: HTTP {response.status_code} {detail}")
 
         if reporter is not None and chunk_index and chunk_total:
@@ -445,7 +478,11 @@ async def _request_translation(
 
     content = "".join(content_parts)
     if not content.strip():
+        if debug_label:
+            _write_debug_text(debug_dir, f"{debug_label}.response.txt", content)
         raise RuntimeError("DeepSeek stream 响应缺少 message.content。")
+    if debug_label:
+        _write_debug_text(debug_dir, f"{debug_label}.response.txt", content)
     return content
 
 
@@ -468,6 +505,7 @@ async def _translate_chunk_with_missing_retry(
     chunk: list[tuple[int, SubtitleBlock]],
     started: float,
     settings: WebSettings,
+    debug_dir: Path | None = None,
 ) -> None:
     pending = [(index, block) for index, block in chunk if index not in translations]
     attempt = 0
@@ -479,6 +517,7 @@ async def _translate_chunk_with_missing_retry(
         prompt = _render_prompt(prompt_template, target_language=request.target_language, text=segment_text)
         context_messages = _build_context_messages(blocks, translations, settings.deepseek_context_chars)
         expected_indexes = [index for index, _ in pending]
+        debug_label = f"chunk-{chunk_index:04d}-attempt-{attempt + 1:02d}" if request.debug_io else None
         content = await _request_translation(
             client,
             url=url,
@@ -491,6 +530,9 @@ async def _translate_chunk_with_missing_retry(
             chunk_index=chunk_index,
             chunk_total=chunk_total,
             started=started,
+            debug_dir=debug_dir,
+            debug_label=debug_label,
+            expected_indexes=expected_indexes,
         )
         try:
             translations.update(_parse_translated_segments(content, expected_indexes))
@@ -580,14 +622,17 @@ async def run_translate_web_job(
     partial_path = output_dir / f"{output_stem}.partial.srt"
     output_path = output_dir / f"{output_stem}.srt"
     state_path = output_dir / f"{output_stem}.translate_state.json"
+    debug_dir = output_dir / f"{output_stem}.translation_debug" if request.debug_io else None
     started = time.monotonic()
 
     await reporter.stage("translate_running", "DeepSeek 字幕翻译开始。")
     await reporter.log(
         f"DeepSeek 字幕翻译: model={request.model}, reasoning_effort={_normalize_reasoning_effort(request.reasoning_effort)}, "
         f"max_tokens={request.max_tokens}, chunk_chars={request.chunk_chars}, max_blocks_per_chunk={request.max_blocks_per_chunk}, "
-        f"blocks={len(blocks)}, chunks={len(chunks)}, target={request.target_language}"
+        f"debug_io={request.debug_io}, blocks={len(blocks)}, chunks={len(chunks)}, target={request.target_language}"
     )
+    if debug_dir is not None:
+        await reporter.log(f"翻译 debug I/O 保存目录: {debug_dir}")
     _write_translation_state(
         state_path,
         request=request,
@@ -646,6 +691,7 @@ async def run_translate_web_job(
                     chunk=chunk,
                     started=started,
                     settings=settings,
+                    debug_dir=debug_dir,
                 )
             except TranslationCanceled:
                 await reporter.log("翻译任务检测到取消请求，正在保留已完成字幕分块。")

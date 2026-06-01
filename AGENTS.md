@@ -10,10 +10,10 @@
 - Web：`web_app/main.py` 提供 FastAPI API，`frontend/` 提供 React + Vite 控制台。
 - ASR：Qwen3-ASR-1.7B，Windows `auto` 后端默认走 transformers，非 Windows `auto` 默认走 vLLM。
 - 时间轴：默认启用 Qwen3-ForcedAligner-0.6B 生成更细 SRT；失败或关闭时回退到 VAD 段落时间。
-- 翻译：DeepSeek chat completions，后端使用 `stream: true` 读取 DeepSeek SSE，并通过任务 SSE 推送日志/进度；漏段会自动补译，失败/取消会保留 checkpoint 支持继续翻译。
+- 翻译：DeepSeek chat completions，后端使用 `stream: true` 读取 DeepSeek SSE，并通过任务 SSE 推送日志/进度；漏段会自动补译，失败/取消会保留 checkpoint 支持继续翻译；可开启 debug I/O 保存请求/响应用于排查。
 - LADA：Web 端通过外部 `lada-cli.exe` 子进程执行去码任务。
 
-默认运行配置以 12GB 显存 Windows 本机为主要调优对象：`batch=4`、`max_new_tokens=1024`、`segment_duration=60`、`max_segment_duration=120`、默认识别语言为 `Japanese`。
+默认运行配置以 12GB 显存 Windows 本机为主要调优对象：`batch=5`、`max_new_tokens=1024`、`segment_duration=30`、`max_segment_duration=60`、默认识别语言为 `Japanese`。
 
 项目使用 conda 管理 Python 环境；运行测试、脚本或后端前，先确认并使用当前项目对应的 conda 环境。
 
@@ -28,7 +28,7 @@
 | SRT/TXT 输出 | 清理 ASR 重复文本；SRT 优先 ForcedAligner 时间戳，回退 VAD 时间 | `output.py` |
 | Web API | FastAPI、任务队列、上传、artifact 下载、任务 SSE | `web_app/main.py`, `web_app/jobs.py` |
 | Web 前端 | React + Vite 单页控制台，ASR/LADA/翻译/历史页 | `frontend/src/` |
-| DeepSeek 翻译 | SRT 分块、上下文携带、流式读取 DeepSeek SSE、缺失 `<SEG>` 自动补译、checkpoint 断点恢复 | `web_app/runners/translate.py` |
+| DeepSeek 翻译 | SRT 分块、上下文携带、流式读取 DeepSeek SSE、缺失 `<SEG>` 自动补译、checkpoint 断点恢复、debug I/O 保存 | `web_app/runners/translate.py` |
 | LADA | 调用外部 CLI，输出目录优先输入文件同目录，失败回退 Web artifact 目录 | `web_app/runners/lada.py`, `web_app/lada_paths.py` |
 
 ## 目录和模块地图

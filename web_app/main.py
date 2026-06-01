@@ -311,6 +311,8 @@ async def create_translate_job(request: TranslateJobRequest):
         runtime_defaults["chunk_chars"] = settings.deepseek_chunk_chars
     if "max_blocks_per_chunk" not in request.model_fields_set:
         runtime_defaults["max_blocks_per_chunk"] = settings.deepseek_max_blocks_per_chunk
+    if "debug_io" not in request.model_fields_set:
+        runtime_defaults["debug_io"] = settings.deepseek_debug_io
     if "target_language" not in request.model_fields_set:
         runtime_defaults["target_language"] = settings.deepseek_target_language
     if runtime_defaults:
@@ -359,6 +361,7 @@ async def create_translate_job(request: TranslateJobRequest):
         "max_tokens": request.max_tokens,
         "chunk_chars": request.chunk_chars,
         "max_blocks_per_chunk": request.max_blocks_per_chunk,
+        "debug_io": request.debug_io,
         "custom_prompt": bool((request.prompt_template or "").strip()),
     }
     try:
@@ -406,6 +409,7 @@ async def resume_translate_job(job_id: str):
         "max_tokens": runner_request.max_tokens,
         "chunk_chars": runner_request.chunk_chars,
         "max_blocks_per_chunk": runner_request.max_blocks_per_chunk,
+        "debug_io": runner_request.debug_io,
         "custom_prompt": bool((runner_request.prompt_template or "").strip()),
     }
     try:

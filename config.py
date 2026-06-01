@@ -15,6 +15,7 @@ DEFAULT_DEEPSEEK_MAX_TOKENS = DEEPSEEK_V4_MAX_OUTPUT_TOKENS
 DEFAULT_DEEPSEEK_CHUNK_CHARS = 200_000
 DEFAULT_DEEPSEEK_CONTEXT_CHARS = 12_000
 DEFAULT_DEEPSEEK_MAX_BLOCKS_PER_CHUNK = 80
+DEFAULT_DEEPSEEK_DEBUG_IO = False
 DEFAULT_TRANSLATION_PROMPT_TEMPLATE = """你是专业字幕翻译助手。请将下面 SRT 字幕正文翻译为{target_language}。
 
 要求：
@@ -108,5 +109,6 @@ class WebSettings:
     deepseek_chunk_chars: int = DEFAULT_DEEPSEEK_CHUNK_CHARS
     deepseek_context_chars: int = DEFAULT_DEEPSEEK_CONTEXT_CHARS
     deepseek_max_blocks_per_chunk: int = DEFAULT_DEEPSEEK_MAX_BLOCKS_PER_CHUNK
+    deepseek_debug_io: bool = DEFAULT_DEEPSEEK_DEBUG_IO
     deepseek_max_srt_size_mb: int = 20
     deepseek_prompt_template: str = DEFAULT_TRANSLATION_PROMPT_TEMPLATE

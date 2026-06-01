@@ -132,6 +132,7 @@ class DeepSeekTranslateTests(unittest.TestCase):
                 "max_tokens": 1234,
                 "chunk_chars": 5000,
                 "max_blocks_per_chunk": 12,
+                "debug_io": True,
                 "prompt_template": "翻译为{target_language}\n{text}",
             },
         }
@@ -139,8 +140,31 @@ class DeepSeekTranslateTests(unittest.TestCase):
         request = build_resume_request_from_state(state)
 
         self.assertEqual(request.max_blocks_per_chunk, 12)
+        self.assertIs(request.debug_io, True)
         self.assertEqual(request.prompt_template, "翻译为{target_language}\n{text}")
         self.assertEqual(request.input_text, _build_srt(blocks, {}))
+
+    def test_build_resume_request_from_state_parses_string_debug_false(self):
+        state = {
+            "version": 1,
+            "blocks": [
+                {"number": "1", "timing": "00:00:00,000 --> 00:00:01,000", "text": "hello"},
+            ],
+            "request": {
+                "target_language": "简体中文",
+                "model": "deepseek-v4-pro",
+                "reasoning_effort": "max",
+                "max_tokens": 1234,
+                "chunk_chars": 5000,
+                "max_blocks_per_chunk": 12,
+                "debug_io": "false",
+                "prompt_template": "{text}",
+            },
+        }
+
+        request = build_resume_request_from_state(state)
+
+        self.assertIs(request.debug_io, False)
 
     def test_stream_delta_extracts_content_and_ignores_reasoning_text_body(self):
         content, reasoning = _extract_stream_deltas(
@@ -183,6 +207,37 @@ class DeepSeekTranslateAsyncTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(content, "<SEG 0>你好</SEG 0>")
+
+    async def test_request_translation_writes_debug_input_and_output_without_api_key(self):
+        def handler(request):
+            self.assertNotIn("secret", request.content.decode("utf-8"))
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "text/event-stream"},
+                content='data: {"choices":[{"delta":{"content":"<SEG 0>你好</SEG 0>"}}]}\n\ndata: [DONE]\n\n'.encode("utf-8"),
+            )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            debug_dir = Path(temp_dir) / "debug"
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+                content = await _request_translation(
+                    client,
+                    url="https://api.deepseek.com/chat/completions",
+                    api_key="secret",
+                    request=TranslateJobRequest(input_text=SRT_TEXT),
+                    prompt="<SEG 0>hello</SEG 0>",
+                    debug_dir=debug_dir,
+                    debug_label="chunk-0001-attempt-01",
+                    expected_indexes=[0],
+                )
+
+            request_payload = json.loads((debug_dir / "chunk-0001-attempt-01.request.json").read_text(encoding="utf-8"))
+            response_text = (debug_dir / "chunk-0001-attempt-01.response.txt").read_text(encoding="utf-8")
+
+        self.assertEqual(content, "<SEG 0>你好</SEG 0>")
+        self.assertEqual(request_payload["expected_indexes"], [0])
+        self.assertNotIn("secret", json.dumps(request_payload, ensure_ascii=False))
+        self.assertEqual(response_text, "<SEG 0>你好</SEG 0>")
 
     async def test_missing_segment_retry_preserves_partial_translations(self):
         class FakeReporter:
@@ -313,6 +368,7 @@ class DeepSeekTranslateAsyncTests(unittest.IsolatedAsyncioTestCase):
                 "max_tokens": 1000,
                 "chunk_chars": 5000,
                 "max_blocks_per_chunk": 2,
+                "debug_io": True,
                 "prompt_template": "{text}",
             },
         }

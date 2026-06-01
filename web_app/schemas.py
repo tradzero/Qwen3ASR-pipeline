@@ -92,6 +92,7 @@ class TranslateJobRequest(BaseModel):
     max_tokens: int = Field(default=_WEB_DEFAULTS.deepseek_max_tokens, ge=1, le=DEEPSEEK_V4_MAX_OUTPUT_TOKENS)
     chunk_chars: int = Field(default=_WEB_DEFAULTS.deepseek_chunk_chars, ge=500, le=DEEPSEEK_V4_CONTEXT_TOKENS)
     max_blocks_per_chunk: int = Field(default=_WEB_DEFAULTS.deepseek_max_blocks_per_chunk, ge=1, le=500)
+    debug_io: bool = _WEB_DEFAULTS.deepseek_debug_io
     prompt_template: str | None = None
 
     @model_validator(mode="after")
