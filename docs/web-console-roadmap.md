@@ -9,7 +9,7 @@
 - 视频载入：第一版以输入本机路径、盘符路径或 UNC/NAS 路径为主；浏览器上传 API 保留为兜底能力，但主界面不再复制大文件到 Web 目录。
 - 任务关系：ASR、LADA、翻译第一版是三个独立任务，不做强制流水线编排。
 - 翻译方式：手动触发 DeepSeek 翻译 SRT 字幕；prompt 放在 `config.py`；API key 使用环境变量，输出保留原时间轴的 SRT。
-- 任务能力：第一版同一时刻只运行一个重任务，支持取消任务和保存任务历史。
+- 任务能力：本地重任务同一时刻只运行一个；DeepSeek 翻译走独立 API 通道，可与本地任务并行；支持取消任务和保存任务历史。
 - LADA 集成：默认调用 `D:\lada\lada-cli.exe`。
 - 安全边界：默认只绑定 `127.0.0.1`，不做多用户认证，不主动扫描媒体库。
 - 配置边界：现有 ASR `Config` 继续服务 CLI 和 ASR 参数；Web、LADA、DeepSeek、上传目录和任务目录放入单独的 `WebSettings`，避免把服务端运行配置混进 CLI。
@@ -176,7 +176,7 @@ npm --prefix frontend run build
 ### 范围
 
 - 新增 `JobManager`，管理任务创建、状态更新、日志、产物、取消请求和历史写入。
-- 实现单任务锁：已有任务运行时，新任务返回明确错误，或后续阶段再改为排队。
+- 实现资源通道互斥：ASR/LADA/mock 共用本地资源通道，DeepSeek 翻译使用独立 API 通道。
 - 实现 SSE 事件流。
 - 实现任务历史 JSON 摘要持久化；完整日志写入每个任务自己的日志文件，内存和历史摘要中只保留最近若干行。
 - 服务重启时将未完成任务标记为 `interrupted`。
@@ -525,7 +525,7 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 | ASR 单次 `model.transcribe` 不能被立即中断 | 取消可能延迟 | 第一版协作式取消；后续如有必要改成独立进程 |
 | Windows 原生 vLLM 不稳定 | Web ASR 后端选择可能踩坑 | 保持 `backend=auto` 走 transformers，文档强调 WSL/Linux 再用 vLLM |
 | LADA tqdm 输出可能被 stderr/控制字符打散 | 百分比解析不稳定 | 解析不到时展示日志和运行中状态，不阻断任务 |
-| LADA 和 ASR 都吃 GPU | 并发会 OOM | 第一版单任务锁；后续再做队列和资源调度 |
+| LADA 和 ASR 都吃 GPU | 并发会 OOM | ASR/LADA/mock 共用本地资源通道；翻译可与本地任务并行 |
 | DeepSeek 长文本成本和限速 | 翻译失败或耗时长 | 分块、重试、错误可见；不默认自动翻译 |
 | 本机路径通过 Web 暴露 | 安全风险 | 默认只监听 localhost，不做远程访问 |
 | 任意 artifact 路径下载 | 可能泄漏本机文件 | 下载接口只允许返回任务登记过的产物 |

@@ -91,6 +91,7 @@ Web 运行配置使用单独的 `WebSettings`，不会改变 CLI 的 ASR `Config
 ### 阶段 1 后端运行时
 
 阶段 1 已建立 FastAPI 后端骨架和通用任务运行时，可用 mock job 验证任务状态、SSE 事件、取消和 artifact 访问。
+任务调度按资源通道互斥：ASR/LADA/mock 共用本地资源通道，同一时刻只允许一个；DeepSeek 翻译走独立 API 通道，可以和一个本地资源任务同时运行，但同一时刻仍只允许一个翻译任务。
 
 ```powershell
 uvicorn web_app.main:app --host 127.0.0.1 --port 7860

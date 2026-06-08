@@ -87,7 +87,7 @@ frontend create job
   -> frontend refreshes active JobRecord
 ```
 
-Web 当前同一时间只允许一个 active job。任务历史保存在 `jobs/history.json`；服务重启时未完成任务会标记为 `interrupted`。
+Web 任务按资源通道互斥：ASR/LADA/mock 共用本地资源通道，同一时间只允许一个；翻译走独立 API 通道，可与一个本地资源任务并行，但同一时间只允许一个翻译任务。任务历史保存在 `jobs/history.json`；服务重启时未完成任务会标记为 `interrupted`。
 
 ## 配置边界
 

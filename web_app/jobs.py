@@ -18,6 +18,19 @@ ACTIVE_STATUSES: set[JobStatus] = {"queued", "running"}
 Runner = Callable[["JobReporter", "CancelToken"], Awaitable[None]]
 
 
+def _job_lane(job_type: JobType) -> str:
+    return "translate" if job_type == "translate" else "local"
+
+
+def _job_conflict_message(requested_type: JobType, active_job: JobRecord) -> str:
+    if _job_lane(requested_type) == "translate":
+        return f"已有翻译任务正在运行 ({active_job.job_id})，请等待翻译完成后再启动新的翻译任务。"
+    return (
+        f"已有本地资源任务正在运行 ({active_job.type}: {active_job.job_id})，"
+        "ASR/LADA 等本地任务同一时刻只允许一个；翻译任务可以并行运行。"
+    )
+
+
 class JobConflictError(RuntimeError):
     pass
 
@@ -166,6 +179,13 @@ class JobManager:
     def has_active_job(self) -> bool:
         return any(job.status in ACTIVE_STATUSES for job in self._jobs.values())
 
+    def _conflicting_active_job(self, job_type: JobType) -> JobRecord | None:
+        requested_lane = _job_lane(job_type)
+        for job in self._jobs.values():
+            if job.status in ACTIVE_STATUSES and _job_lane(job.type) == requested_lane:
+                return job
+        return None
+
     async def create_job(
         self,
         job_type: JobType,
@@ -173,8 +193,9 @@ class JobManager:
         metadata: dict | None = None,
     ) -> JobRecord:
         async with self._lock:
-            if self.has_active_job():
-                raise JobConflictError("已有任务正在运行，第一版 Web 控制台同一时刻只允许一个任务。")
+            conflict = self._conflicting_active_job(job_type)
+            if conflict is not None:
+                raise JobConflictError(_job_conflict_message(job_type, conflict))
             created_at = utc_now()
             job_id = f"{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}-{job_type}-{uuid4().hex[:8]}"
             log_path = self.logs_dir / f"{job_id}.log"
