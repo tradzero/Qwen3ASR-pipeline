@@ -16,6 +16,7 @@ from web_app.settings import ensure_runtime_dirs, get_runtime_paths
 TERMINAL_STATUSES: set[JobStatus] = {"succeeded", "failed", "canceled", "interrupted"}
 ACTIVE_STATUSES: set[JobStatus] = {"queued", "running"}
 Runner = Callable[["JobReporter", "CancelToken"], Awaitable[None]]
+CompletionCallback = Callable[[JobRecord], Awaitable[None]]
 
 
 def _job_lane(job_type: JobType) -> str:
@@ -119,9 +120,15 @@ class JobManager:
         self.history_path = self.job_dir / "history.json"
         self._jobs: dict[str, JobRecord] = {}
         self._tokens: dict[str, CancelToken] = {}
+        self._runners: dict[str, Runner] = {}
+        self._started_job_ids: set[str] = set()
         self._subscribers: dict[str, set[asyncio.Queue[JobEvent]]] = {}
+        self._completion_callback: CompletionCallback | None = None
         self._lock = asyncio.Lock()
         self._load_history()
+
+    def set_completion_callback(self, callback: CompletionCallback | None) -> None:
+        self._completion_callback = callback
 
     def _load_history(self) -> None:
         if not self.history_path.is_file():
@@ -182,19 +189,29 @@ class JobManager:
     def _conflicting_active_job(self, job_type: JobType) -> JobRecord | None:
         requested_lane = _job_lane(job_type)
         for job in self._jobs.values():
-            if job.status in ACTIVE_STATUSES and _job_lane(job.type) == requested_lane:
+            if _job_lane(job.type) == requested_lane and (job.status in ACTIVE_STATUSES or job.job_id in self._started_job_ids):
                 return job
         return None
+
+    def _lane_has_running_or_starting(self, lane: str) -> bool:
+        for job in self._jobs.values():
+            if _job_lane(job.type) != lane:
+                continue
+            if job.status == "running" or job.job_id in self._started_job_ids:
+                return True
+        return False
 
     async def create_job(
         self,
         job_type: JobType,
         job_input: JobInput | None = None,
         metadata: dict | None = None,
+        *,
+        allow_queue: bool = False,
     ) -> JobRecord:
         async with self._lock:
             conflict = self._conflicting_active_job(job_type)
-            if conflict is not None:
+            if conflict is not None and not allow_queue:
                 raise JobConflictError(_job_conflict_message(job_type, conflict))
             created_at = utc_now()
             job_id = f"{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}-{job_type}-{uuid4().hex[:8]}"
@@ -213,43 +230,88 @@ class JobManager:
             self._jobs[job_id] = record
             self._tokens[job_id] = CancelToken()
             self._persist_history()
-            await self._publish(record, "status", message="任务已创建。")
+            message = "任务已创建。"
+            if conflict is not None:
+                message = f"任务已创建，等待通道空闲后自动运行；当前占用任务: {conflict.job_id}。"
+            await self._publish(record, "status", message=message)
             return record
 
+    async def submit_job(self, job_id: str, runner: Runner) -> None:
+        async with self._lock:
+            self.get_job(job_id)
+            self._runners[job_id] = runner
+        await self._maybe_start_next(_job_lane(self.get_job(job_id).type))
+
+    async def _maybe_start_next(self, lane: str) -> None:
+        async with self._lock:
+            if self._lane_has_running_or_starting(lane):
+                return
+            candidates = sorted(
+                (
+                    job
+                    for job in self._jobs.values()
+                    if job.status == "queued"
+                    and _job_lane(job.type) == lane
+                    and job.job_id in self._runners
+                    and job.job_id not in self._started_job_ids
+                ),
+                key=lambda job: job.created_at,
+            )
+            if not candidates:
+                return
+            job = candidates[0]
+            runner = self._runners[job.job_id]
+            self._started_job_ids.add(job.job_id)
+            asyncio.create_task(self.run_job(job.job_id, runner))
+
     async def run_job(self, job_id: str, runner: Runner) -> None:
+        lane = _job_lane(self.get_job(job_id).type)
         reporter = JobReporter(self, job_id)
         token = self._tokens[job_id]
-        await self.update_job(job_id, status="running", stage="running", event="status", message="任务开始运行。")
         try:
-            await runner(reporter, token)
-        except Exception as exc:
-            await self.update_job(
-                job_id,
-                status="failed",
-                stage="failed",
-                error=str(exc),
-                event="error",
-                message=str(exc),
-            )
-            return
-        current_job = self.get_job(job_id)
-        if current_job.status in TERMINAL_STATUSES:
-            return
-        if token.is_canceled:
-            await self.update_job(job_id, status="canceled", stage="canceled", event="status", message="任务已取消。")
-        else:
-            if current_job.progress.done == 0 and current_job.progress.total == 0 and current_job.progress.percent == 0.0:
-                progress = JobProgress(percent=100.0, done=1, total=1)
+            await self.update_job(job_id, status="running", stage="running", event="status", message="任务开始运行。")
+            try:
+                await runner(reporter, token)
+            except Exception as exc:
+                await self.update_job(
+                    job_id,
+                    status="failed",
+                    stage="failed",
+                    error=str(exc),
+                    event="error",
+                    message=str(exc),
+                )
+                return
+            current_job = self.get_job(job_id)
+            if current_job.status in TERMINAL_STATUSES:
+                return
+            if token.is_canceled:
+                await self.update_job(job_id, status="canceled", stage="canceled", event="status", message="任务已取消。")
             else:
-                progress = current_job.progress.model_copy(update={"percent": 100.0})
-            await self.update_job(
-                job_id,
-                status="succeeded",
-                stage="succeeded",
-                progress=progress,
-                event="status",
-                message="任务已完成。",
-            )
+                if self._completion_callback is not None:
+                    try:
+                        await self._completion_callback(self.get_job(job_id))
+                    except Exception as exc:
+                        await self.record_handoff_failure(job_id, str(exc))
+                current_job = self.get_job(job_id)
+                if current_job.status in TERMINAL_STATUSES:
+                    return
+                if current_job.progress.done == 0 and current_job.progress.total == 0 and current_job.progress.percent == 0.0:
+                    progress = JobProgress(percent=100.0, done=1, total=1)
+                else:
+                    progress = current_job.progress.model_copy(update={"percent": 100.0})
+                await self.update_job(
+                    job_id,
+                    status="succeeded",
+                    stage="succeeded",
+                    progress=progress,
+                    event="status",
+                    message="任务已完成。",
+                )
+        finally:
+            async with self._lock:
+                self._started_job_ids.discard(job_id)
+            await self._maybe_start_next(lane)
 
     async def request_cancel(self, job_id: str) -> JobRecord:
         job = self.get_job(job_id)
@@ -313,6 +375,34 @@ class JobManager:
             await self._publish(job, "artifact", message=f"产物已登记: {artifact.name}", artifact=artifact)
             return job
 
+    async def record_handoff(self, parent_job_id: str, child_job: JobRecord) -> JobRecord:
+        async with self._lock:
+            parent = self.get_job(parent_job_id)
+            parent.metadata["handoff_status"] = "created"
+            parent.metadata["handoff_child_job_id"] = child_job.job_id
+            parent.metadata["handoff_child_job_type"] = child_job.type
+            parent.updated_at = utc_now()
+            self._persist_history()
+            await self._publish(
+                parent,
+                "handoff",
+                message=f"已自动转交到 {child_job.type} 任务: {child_job.job_id}",
+                child_job_id=child_job.job_id,
+                child_job_type=child_job.type,
+            )
+            return parent
+
+    async def record_handoff_failure(self, parent_job_id: str, error: str) -> JobRecord:
+        async with self._lock:
+            parent = self.get_job(parent_job_id)
+            parent.metadata["handoff_status"] = "failed"
+            parent.metadata["handoff_error"] = error
+            parent.logs.append(f"[{utc_now()}] 自动转交失败: {error}")
+            parent.updated_at = utc_now()
+            self._persist_history()
+            await self._publish(parent, "log", message=f"自动转交失败: {error}")
+            return parent
+
     def _validate_artifact_path(self, job_id: str, path: str) -> Path:
         artifact_path = Path(path).expanduser().resolve()
         job = self.get_job(job_id)
@@ -364,6 +454,8 @@ class JobManager:
         *,
         message: str | None = None,
         artifact: JobArtifact | None = None,
+        child_job_id: str | None = None,
+        child_job_type: JobType | None = None,
         error: str | None = None,
     ) -> None:
         payload = JobEvent(
@@ -374,6 +466,8 @@ class JobManager:
             message=message,
             progress=job.progress,
             artifact=artifact,
+            child_job_id=child_job_id,
+            child_job_type=child_job_type,
             error=error,
             timestamp=utc_now(),
         )

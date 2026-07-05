@@ -2,6 +2,10 @@
 
 本文件面向接手项目的 agent，用来快速理解当前实现、模块边界和验证入口。面向用户的安装、启动和参数说明放在 `README.md`；Web 分阶段历史和更细的路线记录放在 `docs/web-console-roadmap.md`。
 
+## 用户偏好
+
+- 可以用英文进行内部推理和技术检索；面向用户输出时，除非用户明确指定其他语言，默认使用中文。
+
 ## 当前项目状态
 
 这是一个本地长视频/音频处理工具，核心能力已经从单纯 ASR 扩展为本地 Web 任务控制台：
@@ -13,7 +17,7 @@
 - 翻译：DeepSeek chat completions，后端使用 `stream: true` 读取 DeepSeek SSE，并通过任务 SSE 推送日志/进度；漏段会自动补译，失败/取消会保留 checkpoint 支持继续翻译；可开启 debug I/O 保存请求/响应用于排查。
 - LADA：Web 端通过外部 `lada-cli.exe` 子进程执行去码任务。
 
-默认运行配置以 12GB 显存 Windows 本机为主要调优对象：`batch=5`、`max_new_tokens=1024`、`segment_duration=30`、`max_segment_duration=60`、默认识别语言为 `Japanese`。
+默认运行配置以 12GB 显存 Windows 本机为主要调优对象：`batch=8`、`max_new_tokens=1024`、`segment_duration=45`、`max_segment_duration=75`、默认识别语言为 `Japanese`。
 
 项目使用 conda 管理 Python 环境；运行测试、脚本或后端前，先确认并使用当前项目对应的 conda 环境。
 

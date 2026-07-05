@@ -9,6 +9,7 @@ import {
 } from "../api/client.js";
 import { JobDetail } from "../components/JobDetail.jsx";
 import { Panel } from "../components/Panel.jsx";
+import { PathDropInput } from "../components/PathDropInput.jsx";
 
 const DEEPSEEK_V4_CONTEXT_TOKENS = 1000000;
 const DEEPSEEK_V4_MAX_OUTPUT_TOKENS = 384000;
@@ -222,10 +223,12 @@ export function TranslatePage({ activeJob, setActiveJob, streamMode, jobError, s
           ) : null}
 
           {sourceMode === "path" ? (
-            <label>
-              SRT 路径
-              <input onChange={(event) => updateField("input_file", event.target.value)} placeholder="D:\\media\\video.srt" value={form.input_file} />
-            </label>
+            <PathDropInput
+              label="SRT 路径"
+              onChange={(value) => updateField("input_file", value)}
+              placeholder="D:\\media\\video.srt 或 \\\\NAS\\media\\video.srt"
+              value={form.input_file}
+            />
           ) : null}
 
           {sourceMode === "text" ? (

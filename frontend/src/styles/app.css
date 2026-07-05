@@ -223,6 +223,21 @@ input[type="checkbox"] {
   accent-color: #296759;
 }
 
+.path-drop input {
+  border-style: dashed;
+}
+
+.path-drop.active input {
+  border-color: #296759;
+  background: #eef7f2;
+}
+
+.path-drop-notice {
+  color: #8a2f22;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
 .segmented-control {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -266,6 +281,13 @@ input[type="checkbox"] {
   border: 1px solid #d4c8b1;
   border-radius: 8px;
   background: rgba(255, 253, 247, 0.72);
+}
+
+.handoff-section {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid #d4c8b1;
+  padding-top: 14px;
 }
 
 .upload-box,

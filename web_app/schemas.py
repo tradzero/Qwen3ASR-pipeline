@@ -7,7 +7,7 @@ from config import Config, DEEPSEEK_V4_CONTEXT_TOKENS, DEEPSEEK_V4_MAX_OUTPUT_TO
 
 JobType = Literal["mock", "asr", "lada", "translate"]
 JobStatus = Literal["queued", "running", "succeeded", "failed", "canceled", "interrupted"]
-JobEventType = Literal["progress", "log", "artifact", "status", "error"]
+JobEventType = Literal["progress", "log", "artifact", "status", "error", "handoff"]
 DeepSeekReasoningEffort = Literal["low", "medium", "high", "xhigh", "max"]
 
 
@@ -38,6 +38,8 @@ class JobEvent(BaseModel):
     message: str | None = None
     progress: JobProgress | None = None
     artifact: JobArtifact | None = None
+    child_job_id: str | None = None
+    child_job_type: JobType | None = None
     error: str | None = None
     timestamp: str
 
@@ -73,12 +75,64 @@ _WEB_DEFAULTS = WebSettings()
 MAX_LADA_CLIP_LENGTH = 1000
 
 
+class PathInspectRequest(BaseModel):
+    path: str = Field(min_length=1)
+    kind: Literal["any", "media", "srt"] = "any"
+
+
+class PathInspectResponse(BaseModel):
+    path: str
+    exists: bool
+    is_file: bool
+    suffix: str | None = None
+    error: str | None = None
+
+
+class TranslateHandoffConfig(BaseModel):
+    enabled: bool = False
+    source_job_id: str | None = None
+    input_file: str | None = None
+    artifact_name: str | None = "subtitle"
+    target_language: str | None = None
+    model: str | None = None
+    reasoning_effort: DeepSeekReasoningEffort | None = None
+    max_tokens: int | None = Field(default=None, ge=1, le=DEEPSEEK_V4_MAX_OUTPUT_TOKENS)
+    chunk_chars: int | None = Field(default=None, ge=500, le=DEEPSEEK_V4_CONTEXT_TOKENS)
+    max_blocks_per_chunk: int | None = Field(default=None, ge=1, le=500)
+    debug_io: bool | None = None
+    prompt_template: str | None = None
+
+    @model_validator(mode="after")
+    def validate_source_shape(self) -> "TranslateHandoffConfig":
+        if self.source_job_id and self.input_file:
+            raise ValueError("Only one translate handoff source is allowed")
+        return self
+
+
+class LadaHandoffConfig(BaseModel):
+    enabled: bool = False
+    encoding_preset: str | None = None
+    device: str | None = None
+    fp16: bool | None = None
+    max_clip_length: int | None = Field(default=None, ge=1, le=MAX_LADA_CLIP_LENGTH)
+    translate: TranslateHandoffConfig = Field(default_factory=TranslateHandoffConfig)
+
+
+class AsrJobHandoffConfig(BaseModel):
+    lada: LadaHandoffConfig = Field(default_factory=LadaHandoffConfig)
+
+
+class LadaJobHandoffConfig(BaseModel):
+    translate: TranslateHandoffConfig = Field(default_factory=TranslateHandoffConfig)
+
+
 class LadaJobRequest(BaseModel):
     input_file: str = Field(min_length=1)
     encoding_preset: str | None = _WEB_DEFAULTS.lada_encoding_preset
     device: str | None = _WEB_DEFAULTS.lada_device
     fp16: bool | None = _WEB_DEFAULTS.lada_fp16
     max_clip_length: int | None = Field(default=_WEB_DEFAULTS.lada_max_clip_length, ge=1, le=MAX_LADA_CLIP_LENGTH)
+    handoff: LadaJobHandoffConfig = Field(default_factory=LadaJobHandoffConfig)
 
 
 class TranslateJobRequest(BaseModel):
@@ -127,6 +181,7 @@ class AsrJobRequest(BaseModel):
     forced_aligner_model: str | None = _ASR_DEFAULTS.forced_aligner_model
     srt_max_chars: int = Field(default=_ASR_DEFAULTS.srt_max_chars, ge=1)
     srt_max_duration: float = Field(default=_ASR_DEFAULTS.srt_max_duration, gt=0.0)
+    handoff: AsrJobHandoffConfig = Field(default_factory=AsrJobHandoffConfig)
 
     def to_config(self, output_dir: str) -> Config:
         return Config(

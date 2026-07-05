@@ -14,7 +14,7 @@
 
 ## Web 控制台
 
-本项目的本地 Web 控制台使用 React + Vite 前端和 FastAPI 后端，当前已支持本机/UNC 路径载入、启动预热、ASR 任务进度展示、LADA 去码任务进度展示、DeepSeek SRT 字幕翻译、任务历史和产物下载。详细阶段、审查点和验证清单见 [docs/web-console-roadmap.md](docs/web-console-roadmap.md)。
+本项目的本地 Web 控制台使用 React + Vite 前端和 FastAPI 后端，当前已支持本机/UNC 路径载入、路径文本拖放/粘贴、启动预热、ASR 任务进度展示、LADA 去码任务进度展示、DeepSeek SRT 字幕翻译、任务自动交接、任务历史和产物下载。详细阶段、审查点和验证清单见 [docs/web-console-roadmap.md](docs/web-console-roadmap.md)。
 
 ### Web 快速启动
 
@@ -30,7 +30,7 @@ if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 
 默认后端监听 `http://127.0.0.1:7860`，前端监听 `http://127.0.0.1:5173`。后端启动时会静默加载项目根目录 `.env`，不会打印 API key；已有进程环境变量优先于 `.env`。本工具默认只适合本机使用，不建议把 `WEB_HOST` 改成 `0.0.0.0`。局域网访问会暴露本机路径、上传文件和任务执行能力，需自行承担风险。
 
-Web 页面以路径输入为主，适合服务端和浏览器都在本机运行的场景；ASR/LADA 输入可填写 `D:\media\video.mp4` 或 `\\NAS\media\video.mp4`。标准浏览器不会向网页暴露真实绝对路径，所以文件选择控件不能可靠替代本机/UNC 路径输入。
+Web 页面以路径输入为主，适合服务端和浏览器都在本机运行的场景；ASR/LADA 输入可填写 `D:\media\video.mp4` 或 `\\NAS\media\video.mp4`。路径输入框支持拖放/粘贴文本路径、带引号路径和 `file://` URI，例如 `file://server/share/video.mp4` 会规范化为 UNC 路径。标准浏览器不会向网页暴露真实绝对路径；直接拖入普通文件但没有路径文本时，前端只提示复制为路径，不会自动上传大文件。
 
 `start-web.ps1` 会在后端窗口中激活 conda 环境，默认环境名是 `qwen3-asr`。`restart-web.ps1` 会先停止占用后端/前端端口的监听进程，再用相同参数调用 `start-web.ps1`。如需覆盖：
 
@@ -107,6 +107,7 @@ uvicorn web_app.main:app --host 127.0.0.1 --port 7860
 - `POST /api/jobs/{job_id}/cancel`
 - `GET /api/jobs/{job_id}/events`
 - `GET /api/artifacts/{job_id}/{artifact_name}`
+- `POST /api/paths/inspect`
 - `POST /api/uploads`
 - `POST /api/jobs/mock`
 - `POST /api/jobs/asr`
@@ -141,7 +142,7 @@ $env:THINK_LEVEL="max"
 
 ### Web API 和事件模型
 
-任务统一使用 `JobRecord`：`status` 为 `queued`、`running`、`succeeded`、`failed`、`canceled` 或 `interrupted`；`progress` 包含 `percent`、`done`、`total`、`elapsed_seconds`、`eta_seconds`；`artifacts` 只登记任务目录内产物。
+任务统一使用 `JobRecord`：`status` 为 `queued`、`running`、`succeeded`、`failed`、`canceled` 或 `interrupted`；`progress` 包含 `percent`、`done`、`total`、`elapsed_seconds`、`eta_seconds`；`artifacts` 只登记任务目录内产物。ASR/LADA 可在请求中携带 `handoff` 配置，成功后由后端自动创建下游任务；自动交接任务在对应资源通道繁忙时会保持 `queued`，通道空闲后运行。自动链路中 LADA 处理原始视频，翻译始终使用 ASR 产出的 SRT；因此 `ASR -> LADA` 需要本机或 UNC/NAS 路径，完整 `ASR -> LADA -> 翻译` 需要开启 ASR 的 SRT 输出。
 
 主要接口：
 
@@ -149,11 +150,12 @@ $env:THINK_LEVEL="max"
 |------|------|------|
 | `GET` | `/api/health` | 后端健康检查 |
 | `GET` | `/api/config/defaults` | 返回非敏感默认配置和运行时目录 |
+| `POST` | `/api/paths/inspect` | 规范化并检查本机/UNC 路径；远程 URL 不做本地预检查 |
 | `POST` | `/api/uploads` | 可选上传接口，返回服务端保存路径 |
 | `GET` | `/api/jobs` | 任务历史 |
 | `GET` | `/api/jobs/{job_id}` | 任务详情 |
 | `POST` | `/api/jobs/{job_id}/cancel` | 请求取消任务 |
-| `GET` | `/api/jobs/{job_id}/events` | SSE 事件流：`status`、`progress`、`log`、`artifact`、`error` |
+| `GET` | `/api/jobs/{job_id}/events` | SSE 事件流：`status`、`progress`、`log`、`artifact`、`handoff`、`error` |
 | `GET` | `/api/artifacts/{job_id}/{artifact_name}` | 下载或打开任务产物 |
 | `POST` | `/api/jobs/asr` | 创建 ASR 任务 |
 | `POST` | `/api/jobs/lada` | 创建 LADA 去码任务 |
@@ -213,10 +215,10 @@ python main.py -i video.mp4 \
     --model Qwen/Qwen3-ASR-1.7B \
     --aligner-model Qwen/Qwen3-ForcedAligner-0.6B \
     --gpu-mem 0.5 \
-    --batch-size 4 \
+    --batch-size 8 \
     --max-tokens 1024 \
-    --segment-duration 60 \
-    --max-segment 120 \
+    --segment-duration 45 \
+    --max-segment 75 \
     --cache-dir ./cache \
     --language Japanese \
     --backend auto \
@@ -241,10 +243,10 @@ python main.py -i video.mp4 \
 | `--device-map` | `cuda:0` | transformers 后端和 ForcedAligner 的设备映射 |
 | `--dtype` | `bfloat16` | transformers 后端和 ForcedAligner 的 dtype，可选 `bfloat16`、`float16`、`float32` |
 | `--gpu-mem` | `0.5` | vLLM 后端 GPU 显存利用率；transformers 后端不使用 |
-| `--batch-size` | `4` | 最大推理批大小；显存不足时可降为 1 |
+| `--batch-size` | `8` | 最大推理批大小；显存不足时可降为 1 |
 | `--max-tokens` | `1024` | 最大生成 token 数 |
-| `--segment-duration` | `60` | VAD 目标切片长度（秒） |
-| `--max-segment` | `120` | VAD 切片上限（秒） |
+| `--segment-duration` | `45` | VAD 目标切片长度（秒） |
+| `--max-segment` | `75` | VAD 切片上限（秒） |
 | `--cache-dir` | `./cache` | 音频/VAD 预处理缓存目录 |
 | `--no-cache` | 关闭 | 关闭音频/VAD 预处理缓存 |
 | `--refresh-cache` | 关闭 | 忽略并重建当前输入的音频/VAD 缓存 |
@@ -267,10 +269,10 @@ class Config:
     device_map: str = "cuda:0"
     dtype: str = "bfloat16"
     gpu_memory_utilization: float = 0.5   # 仅 vLLM 后端使用
-    max_inference_batch_size: int = 5     # 显存不足时可降为 1
+    max_inference_batch_size: int = 8     # 显存不足时可降为 1
     max_new_tokens: int = 1024
-    segment_duration: int = 30            # VAD 目标切片长度
-    max_segment_duration: int = 60       # VAD 切片上限
+    segment_duration: int = 45            # VAD 目标切片长度
+    max_segment_duration: int = 75       # VAD 切片上限
     use_cache: bool = True
     cache_dir: str = "./cache"
     ...

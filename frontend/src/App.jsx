@@ -174,6 +174,22 @@ export function App() {
     let alive = true;
     let closeEvents = null;
     let intervalId = null;
+    const activateHandoffChild = async (source) => {
+      const childJobId = source?.child_job_id || source?.metadata?.handoff_child_job_id;
+      let childJob = null;
+      if (childJobId) {
+        childJob = await getJob(childJobId);
+      } else if (source?.job_id) {
+        const response = await listJobs();
+        childJob = response.jobs.find((job) => job.metadata?.parent_job_id === source.job_id) ?? null;
+      }
+      if (!alive || !childJob || !taskTabs.has(childJob.type)) {
+        return;
+      }
+      setActiveJob(childJob);
+      setActiveTab(childJob.type);
+      setJobError("");
+    };
     const refreshJob = async () => {
       try {
         const nextJob = await getJob(jobId);
@@ -185,6 +201,13 @@ export function App() {
           closeEvents?.();
           window.clearInterval(intervalId);
           setStreamMode("closed");
+          if (nextJob.metadata?.handoff_child_job_id || nextJob.metadata?.handoff_status === "created") {
+            activateHandoffChild(nextJob).catch((error) => {
+              if (alive) {
+                setJobError(error.message);
+              }
+            });
+          }
         }
       } catch (error) {
         if (alive) {
@@ -197,7 +220,20 @@ export function App() {
     setStreamMode("live");
     closeEvents = subscribeJobEvents(
       jobId,
-      () => refreshJob(),
+      (event) => {
+        if (event?.event === "handoff") {
+          activateHandoffChild(event).catch((error) => {
+            if (alive) {
+              setJobError(error.message);
+            }
+          });
+        }
+        if (TERMINAL_STATUSES.has(event?.status)) {
+          window.setTimeout(refreshJob, 700);
+        } else {
+          refreshJob();
+        }
+      },
       () => {
         if (alive) {
           setStreamMode("polling");

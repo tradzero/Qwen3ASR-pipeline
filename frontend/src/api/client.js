@@ -23,6 +23,16 @@ export async function getDefaults() {
   return readJson(await fetch(`${API_BASE_URL}/api/config/defaults`));
 }
 
+export async function inspectPath(payload) {
+  return readJson(
+    await fetch(`${API_BASE_URL}/api/paths/inspect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  );
+}
+
 export async function listJobs() {
   return readJson(await fetch(`${API_BASE_URL}/api/jobs`));
 }
@@ -109,7 +119,7 @@ export function uploadFile(file, onProgress) {
 
 export function subscribeJobEvents(jobId, onEvent, onError) {
   const source = new EventSource(`${API_BASE_URL}/api/jobs/${encodeURIComponent(jobId)}/events`);
-  const eventNames = ["status", "progress", "log", "artifact", "error"];
+  const eventNames = ["status", "progress", "log", "artifact", "error", "handoff"];
   const handleEvent = (event) => {
     try {
       onEvent(JSON.parse(event.data));
